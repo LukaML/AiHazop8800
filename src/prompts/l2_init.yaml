@@ -1,0 +1,188 @@
+title: L2_INIT_FROM_L1
+inputs:
+  - rows_l1_json
+instructions: |
+  For each L1 row, add a short technical 'cause' (component-level or signal-level).
+  Keep all existing fields unchanged.
+  
+  Write the cause a bit more informative (about 10–20 words). Include a specific component/module
+  and a concrete failure mechanism (e.g., stuck-high/low, leak, open-circuit, short-to-battery),
+  optionally a signal/state and location/phase. Keep it strictly technical and concise.
+
+  The cause must describe ONLY the root failure at the component itself — what broke and how.
+  Do NOT append downstream consequences, system-level effects, or what the failure leads to (those belong in L3).
+  Structure: name the specific component, then describe the failure mechanism happening to it.
+
+  FAILURE DOMAINS — identify which domain the cause belongs to:
+
+    Hardware / Mechanical — hydraulic seals, pistons, valves, bearings, springs,
+      friction material. Failure modes: leak, seizure, wear, blockage, fatigue
+      crack, corrosion. Do NOT assign electrical faults to these.
+
+    ECU / Software — control units, calibration maps, state machines, lookup
+      tables, watchdog timers. Failure modes: calibration error, overflow, race
+      condition, stale data, incorrect state transition, watchdog timeout.
+      Do NOT assign physical wear or leaks to these.
+
+    Communication / Bus — CAN messages, LIN frames, FlexRay signals, gateway
+      routing, checksums, message counters. Failure modes: message timeout,
+      signal corruption, bus-off event, counter mismatch, checksum failure,
+      gateway message drop. Do NOT assign mechanical faults to these.
+
+    Electrical / Wiring — sensors, connectors, relays, harness wiring. Failure
+      modes: open-circuit, short-to-ground, short-to-battery, signal drift,
+      connector corrosion. Do NOT assign software faults to these.
+
+    Perception / Sensor — cameras, ultrasonic sensors, LiDAR, radar, sensor
+      fusion algorithms. Failure modes: lens soiling, calibration drift, false
+      positive/negative detection, temporal desynchronization between sensor
+      streams, training-data gap for edge case, occlusion-induced miss, ADC
+      quantization error on analog sensor input.
+
+  The failure mechanism MUST be physically compatible with the named component's
+  domain. Cross-domain causes are allowed ONLY when an explicit sensor, feedback,
+  or actuator path connects the domains.
+
+  The cause must include a short causal explanation linking the failure mechanism
+  to the deviation. Do not just name a component and a fault — explain HOW the
+  fault produces the specific deviation.
+  Cross-domain plausibility rules:
+    - Hydraulic leaks cannot produce logical signal inversion.
+    - Mechanical seizure cannot generate signal corruption unless an explicit
+      sensor/feedback path is described.
+    - Electrical open-circuits cannot produce hydraulic overpressure unless an
+      explicit actuator path is described.
+  Reject physically impossible cause-to-deviation chains.
+
+  Braking physics contradiction rules:
+    - Braking activation cannot cause vehicle acceleration.
+    - Increased braking force cannot cause unintended acceleration.
+    - Hydraulic leaks cannot cause signal inversion unless a sensor-based
+      feedback path is explicitly described.
+  If the cause-to-deviation chain violates these rules, rewrite the cause to
+  be physically consistent.
+
+  If additional context (notes or RAG material) is appended below, use it to
+  produce more domain-accurate causes:
+  - Prefer component names and signal names from the context over generic terms.
+  - Use failure modes described in the context when they match the deviation.
+  - Reference parameter ranges or operating conditions from the context.
+  Do not copy context verbatim; synthesize it into proper HAZOP language.
+
+  EXAMPLE (single L1 row → L2 row with cause):
+  Input row: {"row_id":"L1-0","function":"Provide ABS braking","guideword":"less",
+   "deviation":"ABS modulation cycles deliver reduced braking pressure to front calipers during emergency stop.",
+   "applicability_score":1.0,"applicability_note":"directly applicable"}
+  Output row: {"row_id":"L1-0","function":"Provide ABS braking","guideword":"less",
+   "deviation":"ABS modulation cycles deliver reduced braking pressure to front calipers during emergency stop.",
+   "cause":"The ABS hydraulic modulator solenoid valve developed a partial blockage from contaminated brake fluid, restricting pressure delivery during rapid cycling.",
+   "applicability_score":1.0,"applicability_note":"directly applicable"}
+
+  # === CRITICAL RULES: 1:1 & ORDER PRESERVATION (DO NOT VIOLATE) ===
+  - Return EXACTLY the SAME NUMBER of rows as in rows_l1.
+  - Preserve the EXACT SAME ORDER as the input.
+  - For each input row, produce ONE output row (copy all existing fields; add a single 'cause').
+  - Do NOT add, drop, merge, group, deduplicate, or reorder rows.
+  - Preserve row_id EXACTLY as received (if present).
+
+  STRICT OUTPUT INSTRUCTION:
+    - Output JSON ONLY.
+    - Output MUST be a top-level JSON ARRAY of row OBJECTS.
+    - Do NOT wrap in any outer object (no "rows", "data", "items", "result", "output").
+    - Each array element MUST be a JSON OBJECT — NEVER a string line.
+    - Use standard JSON (double quotes). No markdown/code fences or prose.
+output_schema: |
+  type: array
+  items:
+    type: object
+    # row_id is optional (runtime will normalize), but allowed if model keeps it
+    required:
+      - function
+      - guideword
+      - deviation
+      - cause
+    properties:
+      row_id: { type: string }
+      function: { type: string }
+      guideword: { type: string }
+      deviation: { type: string }
+      cause: { type: string }
+      applicability_score: { type: number }
+      applicability_note: { type: string }
+constraints: |
+  - Output JSON ONLY; top-level array of objects.
+  - The output ARRAY LENGTH MUST equal rows_l1 length, and ORDER MUST match rows_l1.
+  - For each (function, guideword, deviation), produce ONE "cause" that is:
+    * specific (names the failing element/signal/sensor/logic),
+    * mechanistic (how it leads to the deviation),
+    * non-generic (ban "system failure", "delayed response" without source),
+    * identifies its failure domain (hardware, ECU/software, communication, electrical).
+  - Preserve applicability_score and applicability_note from L1 unchanged.
+  - CAUSE DIVERSITY — do NOT repeat identical or near-identical failure mechanisms across rows.
+    Distribute causes across diverse fault categories:
+      * Hardware/Mechanical (seal leak, seizure, wear, blockage, fatigue crack)
+      * ECU/Software (calibration error, overflow, race condition, incorrect state transition)
+      * Communication/Bus (message timeout, signal corruption, bus-off, counter mismatch)
+      * Electrical/Wiring (open-circuit, short-to-ground, signal drift, connector corrosion)
+      * Timing/Sequencing (watchdog timeout, stale data, delayed initialization)
+      * Calibration/Integration (parameter mismatch, lookup table error, threshold misconfiguration)
+    If two rows share the same function, each must cite a different component AND a different failure mechanism.
+    Across the full output, maximize variety — do not reuse the same (component, failure mode) pair.
+    For any function with 4 or more guideword rows, causes MUST span at least 3 different failure domains.
+    Each cause must be an independent initiating event. If cause A occurring would also trigger cause B, they are not independent; replace B with a different failure pathway.
+    Prefer failure modes that are documented or plausible for the named component type — avoid exotic mechanisms when common ones have not yet been used.
+    SYSTEM INTEGRATION FAILURES — include integration-layer failures that span
+    component boundaries when they offer the most plausible root cause:
+      * Sensor fusion inconsistency (conflicting data from two sensors not reconciled)
+      * Communication bus arbitration delay (high-priority message pre-empts
+        safety-critical frame)
+      * Redundant signal disagreement (primary and backup sensor report different
+        values, voter logic selects incorrect one)
+      * Fallback mode misactivation (system enters safe-state prematurely based on
+        transient condition)
+      * Incorrect state-machine transition (controller transitions between operational
+        states while system is still active)
+      * CRC / checksum validation failure (corrupted frame discarded, controller uses
+        last-known value)
+      * Software update inconsistency (controller firmware version mismatch after
+        partial update causes protocol incompatibility)
+    These are allowed alongside single-component failures and count toward domain diversity.
+  - SENTENCE STRUCTURE VARIATION: Do NOT use identical sentence structure across rows.
+    Vary the grammatical pattern of cause sentences:
+      * Component-first: "The ABS modulator solenoid developed partial blockage..."
+      * Mechanism-first: "Contaminated brake fluid restricted flow through..."
+      * Condition-first: "Under repeated thermal cycling, the torque sensor offset drifted..."
+      * Temporal-first: "After 50,000 actuation cycles, the relay contact resistance..."
+    If three or more causes in the batch start with "The [component]...", rewrite at least
+    one using a different opener.
+  - BREVITY: Each cause must be ONE clear sentence (maximum two if the causal chain
+    requires it). Target 15-25 words. Do not write paragraph-length causes.
+
+  FORMAT REQUIREMENT - Write the 'cause' as complete English sentences:
+  - Start with a capital letter, end with a period.
+  - NEVER use the ':' character in the cause text.
+  - NEVER use bracket prefixes like "[Category]".
+  - Describe the cause naturally: "The <component> experienced <failure> due to <root mechanism>."
+  - NEVER use dash-separated format like "Element - description". Write full natural sentences.
+
+  CORRECT examples:
+  - "The brake pressure sensor experienced a stuck-high fault due to internal dielectric breakdown in the sensing element."
+  - "The ABS controller suffered a CAN bus arbitration loss when a higher-priority powertrain message pre-empted the brake-request frame during peak bus load."
+  - "The front ultrasonic transducer returned a false-negative for a pedestrian due to sound-absorbing clothing at close range."
+  - "The EPS torque sensor developed an ADC quantization error after supply voltage dropped below the converter's minimum reference threshold."
+  - "The parking ECU activated an incorrect fallback mode because the watchdog timer expired during a legitimate long-running path-planning computation."
+  - "The rear camera and ultrasonic sensor fusion algorithm produced inconsistent obstacle distance estimates due to a 40 ms temporal desynchronization between data streams."
+  - "The steering actuator reached mechanical saturation at full lock, preventing the commanded additional 3-degree correction during tight-space maneuvering."
+  - "The power supply undervoltage on the 5V sensor rail caused all four wheel-speed sensors to report zero, triggering a spurious ABS activation."
+  - "The CAN gateway dropped a brake-pressure CRC-protected frame after detecting a CRC mismatch caused by electromagnetic interference near the engine harness."
+  - "The path-planning module read a stale occupancy grid due to a clock synchronization drift of 80 ms between the perception and planning ECUs."
+
+  WRONG examples (DO NOT USE):
+  - "Sensor fault: stuck-high reading" (NO label:value format)
+  - "[Software logic] PID saturation" (NO bracket prefixes)
+  - "Brake caliper - stuck-low due to lack of hydraulic pressure" (NO dash-separated format)
+  - Ban vague words unless made specific: malfunction, failure, issue, error.
+payload_template: |
+  {
+    "rows_l1": {{rows_l1_json}}
+  }

@@ -1,0 +1,40 @@
+title: REVIEWER_TO_L1_CORRECTIVE
+inputs:
+  - functions_json
+  - guideword_map_json
+  - fix_hints
+  - max_devs_per_gw
+instructions: |
+  Re-generate L1 with FULL guideword coverage using the provided fix hints.
+  The regenerated 'deviation' should describe **only** what is wrong or
+  deviates from nominal behaviour. Do **not** include the root cause or
+  failure mechanism in the deviation; reserve cause details for later stages.
+  Apply each hint explicitly.
+  Keep function names unchanged unless a fix hint requires otherwise.
+  If additional context (notes or RAG material) is appended below, use it to
+  ground your deviations in the described domain:
+  - Prefer component names, signal names, and parameter ranges from the context.
+  - Match domain-specific terminology from the context.
+  Do not copy context verbatim.
+output_schema: |
+  [
+    {
+      "row_id": "string",
+      "function": "string",
+      "guideword": "no|more|less|as well as|part of|reverse|other than|early|late|before|after",
+      "deviation": "string",
+      "applicability_score": 0.0-1.0,
+      "applicability_note": "string"
+    }
+  ]
+constraints: |
+  - Output JSON ONLY.
+  - Ban vague words unless made specific: malfunction, failure, issue, error.
+  - Guideword semantics must be reflected in deviation: no=complete absence, more=quantitative excess, less=quantitative deficiency, reverse=logical/physical inversion, early=earlier than intended, late=later than intended, before=out-of-sequence before prerequisite, after=out-of-sequence after needed, as well as=unintended additional behavior, part of=incomplete execution, other than=unintended different behavior.
+payload_template: |
+  {
+    "functions": {{functions_json}},
+    "guidewords": {{guideword_map_json}},
+    "fix_hints": {{fix_hints}},
+    "max_devs_per_gw": {{max_devs_per_gw}}
+  }

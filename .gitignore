@@ -1,0 +1,32 @@
+# Pytest
+.pytest_cache/
+
+# Output folders
+out/
+outDM/
+outL/
+outStage1/
+
+# RAG docs
+rag_doc/
+
+# Python cache everywhere
+__pycache__/
+*.pyc
+
+# GUI caches
+src/gui/**/__pycache__/
+
+# Temporary txt files
+*.txt
+!requirements.txt
+!src/functions.txt
+!src/rag_docs/*.txt
+
+# Environment files
+.env
+.env*
+
+# Claude / local config
+.claude/
+CLAUDE.md

@@ -1,0 +1,148 @@
+OEM & SUPPLIER OVERVIEWS (RAG NOTES)
+
+Purpose:
+- Provide “design intent” style descriptions and typical operating assumptions for APA/AVP features.
+- Avoid reproducing long copyrighted passages; use paraphrase + short excerpts style.
+
+Valeo Park4U (supplier overview):
+- Design intent (paraphrase): Assist/automate the parking maneuver by detecting suitable spaces and controlling steering (and sometimes speed/braking depending on configuration).
+- Key interactions (paraphrase): Driver initiates feature; system performs maneuver; driver supervises and can stop.
+- RAG cues: “space detection”, “low-speed maneuvering”, “driver supervision”, “controls steering/brake”.
+
+Hyundai Mobis RSPA 2 / parking control (press + industry writeups):
+- Key technical idea (paraphrase): Sensor fusion (surround cameras + ultrasonic sensors) plus parking line recognition enables autonomous parking even when there are no adjacent vehicles.
+- RAG cues: “sensor fusion”, “parking line recognition”, “empty parking space”, “remote parking”.
+
+General OEM manual patterns (Autopark / APA / Remote Parking):
+- Common engagement conditions (generalized):
+  • very low speed; sufficient sensor visibility; clear parking lines or space geometry; driver confirmation; (remote) key-fob/phone link present.
+- Common cancellation / abort:
+  • driver overrides steering/brake; obstacle too close; system detects uncertainty; sensor blocked; system fault; comms loss.
+- Typical warnings (generalized):
+  • Driver is responsible; do not rely on system to detect every object; stay alert and ready to stop.
+
+Mapping to your APA functions:
+1) Provide braking force / 8) Apply emergency braking:
+   - deviation themes: delayed braking, insufficient pressure, false braking, brake not applied.
+2) Control steering angle:
+   - deviation themes: wrong curvature, oscillation, actuator saturation, no steer response.
+3) Control longitudinal motion:
+   - deviation themes: unintended acceleration, no motion when commanded, overshoot stop, creep.
+4) Detect obstacles:
+   - deviation themes: missed detection, false positives, classification error, latency, occlusion.
+5) Activate mode:
+   - deviation themes: activates in unsafe context, wrong mode, wrong space.
+6) Deactivate mode:
+   - deviation themes: fails to disengage, disengages unexpectedly, inconsistent HMI.
+7) Allow driver override:
+   - deviation themes: override delayed/ignored, re-engagement after override, mode confusion.
+9) Disable upon fault detection:
+   - deviation themes: fault not detected, detected too late, unsafe degradation path.
+
+
+=== DETAILED SUPPLIER SPECIFICATIONS ===
+
+Continental APA (Automated Parking Assist):
+  Sensor configuration: 12 ultrasonic sensors (40 kHz, 0.15-5.0 m range) plus
+  4 fisheye surround-view cameras (190-degree FOV each, 1280x960 resolution).
+  Communication: CAN/CAN-FD interface to vehicle gateway. Sensor ASIL rating:
+  ASIL-B per ISO 26262. Maximum operating speed 10 km/h (hard-limited by ECU).
+  Parking space detection: minimum space length 1.1x vehicle length for
+  perpendicular, 1.3x for parallel. Space width minimum 2.3 m. System measures
+  space dimensions during drive-by at <30 km/h using ultrasonic scan.
+  Path planning: geometric planning with up to 7 correction maneuvers. Abort
+  conditions: obstacle detected within 30 cm clearance zone, steering angle
+  tracking error >5 degrees, wheel speed inconsistency between ABS and
+  odometry, completion time exceeding 120 seconds.
+  Known limitations: performance degrades in heavy rain (ultrasonic false
+  echoes from water spray). Fisheye camera stitching artifacts near pillars
+  and tall obstacles at view boundaries. System does not detect overhead
+  obstacles (height barriers, low ceilings below 2.0 m).
+
+HL Mando IEB (Integrated Electronic Brake):
+  Part number: 58520-XA000 (Kia EV9 application). Maximum system pressure
+  180 bar. Pressure build time: zero to 100 bar in <150 ms. Motor: brushless
+  DC with ball screw actuator. Dual-circuit hydraulic output (front/rear split).
+  NHTSA Recall 24V-693 (January 2024): affected Kia EV9 vehicles equipped with
+  HL Mando IEB units. Failure mode: repeated brake applications at speeds below
+  approximately 2 mph (3.2 km/h) could result in insufficient braking
+  performance. Root cause: ball screw mechanism did not fully advance during
+  rapid low-pressure cycling, producing 20-40% pressure deficit. Remedy:
+  software update to ECU brake apply algorithm. Affected approximately 7,600
+  vehicles in the US market.
+  Operating temperature range: -40C to +85C (ECU), -40C to +120C (hydraulic
+  unit). Failure detection: internal pressure sensor cross-checked with motor
+  position encoder. Fault response: revert to manual pedal-push-through mode
+  (no power assist, driver applies direct mechanical force).
+
+Bosch AVP (Automated Valet Parking) — SAE Level 4 in facility:
+  System classification: Type 2 AVP per VDA standard — infrastructure-assisted
+  automated driving within equipped parking facility. Maximum vehicle speed
+  6 km/h within facility, controlled by facility management system.
+  Architecture: dual-channel monitoring — onboard vehicle safety system plus
+  infrastructure safety monitoring (overhead cameras, LiDAR at facility
+  choke points). Watchdog timeout 500 ms — if either channel does not confirm
+  safe state within 500 ms, minimum risk maneuver activates (immediate stop
+  plus EPB engagement).
+  Infrastructure requirements: facility must be surveyed and digitally mapped.
+  UWB positioning anchors at <20 m spacing. Infrastructure perception covers
+  all driving corridors — no vehicle-only perception zones. Communication via
+  facility Wi-Fi (5 GHz, <50 ms latency requirement) or dedicated V2I link.
+  Known limitations: system cannot operate if facility infrastructure is
+  offline (no fallback to vehicle-only mode). Maximum facility size limited by
+  positioning infrastructure coverage. Vehicle must support drive-by-wire
+  interface (steering, braking, propulsion) compatible with Bosch AVP protocol.
+
+Valeo Park4U Gen 3 (Automated Parking):
+  Path planning: Hybrid A* algorithm with kinematic vehicle model. Planning
+  horizon: full maneuver computed before execution begins. Clearance margins:
+  0.8 m lateral for parallel parking, 0.6 m lateral for perpendicular parking.
+  Minimum detectable space: parallel 1.2x vehicle length, perpendicular space
+  width 2.3 m. Maximum correction maneuvers: 5 (perpendicular) or 7 (parallel).
+  Abort conditions: obstacle enters clearance zone (<20 cm), path tracking
+  error exceeds 15 cm lateral or 10 degrees heading, ultrasonic sensor fault
+  on more than 2 sensors simultaneously, completion time exceeds 90 seconds.
+  Sensor suite: 12 ultrasonic (50 kHz) + 4 fisheye cameras. Optional: 1 rear
+  LiDAR for enhanced obstacle detection. Ultrasonic scan rate: 15 Hz per
+  sensor (time-division multiplexed). Camera frame rate: 30 fps.
+  Integration: communicates with vehicle via private CAN bus to EPS, IEB, and
+  powertrain ECU. Requires steering angle feedback <10 ms latency.
+
+Hyundai-Kia RSPA (Remote Smart Parking Assist):
+  Activation: key fob button hold (continuous press required) or smartphone
+  app with Bluetooth connection to vehicle. Maximum operating speed 5 mph
+  (8 km/h), hard-limited. Operating range: key fob must remain within 6 m of
+  vehicle (Bluetooth range with required signal strength). Smartphone control
+  adds approximately 100-300 ms latency versus key fob.
+  Safety: system cancels immediately if key fob button is released (dead-man
+  switch). Cancellation response time <200 ms (brake apply initiation).
+  Ultrasonic monitoring active during entire maneuver with 20 cm minimum
+  clearance threshold.
+  NHTSA Recall 23V-446 (2023): affected Hyundai Ioniq 5 and Kia EV6 vehicles
+  with RSPA feature. Approximately 12,400 vehicles. Failure mode: RSPA could
+  activate unintentionally and move the vehicle without driver command under
+  specific key fob radio frequency interference conditions. Remedy: software
+  update to add additional activation confirmation requirements.
+  Known limitations: does not operate in multi-story structures (ramp grade
+  detection triggers abort). Maximum maneuver distance 10 m from starting
+  position. Requires clear line-of-sight between key fob and vehicle for
+  Bluetooth connection stability.
+
+BMW Remote Parking (including Remote Theft Vehicle Recovery):
+  Activation: BMW Display Key or My BMW smartphone app. Key fob operating
+  range: up to 300 m line-of-sight for remote parking monitoring (actual
+  parking control limited to 6 m range, same Bluetooth constraint). Maximum
+  vehicle speed 6 km/h during remote parking.
+  Sensor configuration: 12 ultrasonic + 4 surround-view cameras + 1 front
+  radar. Surround-view provides bird's-eye visualization on key fob display.
+  System features: forward and reverse straight-line parking (garage entry/
+  exit), perpendicular space entry/exit. Does not support parallel parking in
+  remote mode. Maximum maneuver length: 10 m forward or reverse.
+  Safety: dead-man switch on key fob (button release triggers immediate stop).
+  Ultrasonic emergency stop at 25 cm obstacle distance. Camera-based
+  pedestrian detection adds secondary emergency stop layer. System pauses
+  if any sensor reports fault condition.
+  Known limitations: key fob display has limited resolution (320x240), making
+  remote monitoring of tight clearances difficult. Smartphone app depends on
+  cellular connection for camera stream, adding 200-800 ms video latency.
+  System does not support angled or non-standard parking space geometries.

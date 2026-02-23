@@ -1,0 +1,114 @@
+title: "L3 reviewer"
+inputs:
+  - validator_report
+  - rows_l3_json
+instructions: |
+  Review L3: function → guideword → deviation → cause → effect → potentially_dangerous.
+  No cross-row uniqueness checks.
+
+  For EACH row, verify:
+  1. EFFECT QUALITY: The effect must be a vehicle/system-level consequence — not a
+     restatement of the deviation or cause. It must logically follow from the
+     cause → deviation chain and describe a concrete outcome (e.g., degraded
+     braking performance, loss of steering assist, incorrect torque distribution).
+     Verify the effect addresses three content goals: (1) subsystem impact, (2) vehicle
+     dynamics change, (3) concrete safety consequence. The effect must NOT start
+     with "Due to..." or repeat the deviation text. Flag effects that completely
+     omit any of these aspects, but do NOT flag effects that weave two into a
+     single clause.
+  2. EFFECT SPECIFICITY: Flag effects that are too generic ("system malfunction",
+     "potential safety issue") vs acceptable ("ABS loses wheel-speed feedback,
+     extending stopping distance by ~30%"). Effects should name the impacted
+     subsystem and a measurable or observable consequence.
+  3. POTENTIALLY_DANGEROUS FLAG: Review the boolean triage flag for correctness.
+     The test is: does the effect result in unintended vehicle motion or physical contact?
+     - TRUE when: unintended acceleration, uncontrolled rollback, lateral drift
+       into object, failure to stop before obstacle, creep toward pedestrian,
+       extended stopping distance leading to contact.
+     - FALSE when: vehicle remains stationary, safe-state activation halts motion,
+       nuisance braking (unexpected stop but no contact), false-positive detection
+       triggers unnecessary stop, degraded parking precision (wider arc, extra
+       maneuver needed), manual-mode fallback, loss of steering assist at parking
+       speed (manageable manually), ABS/ESC disabled at parking speed (stopping
+       distance increase negligible), comfort degraded, cosmetic fault,
+       infotainment glitch.
+     Flag a row if an effect with unintended motion/contact is marked false,
+     or a stationary/safe-state/inconvenience effect is marked true.
+  4. VEHICLE DYNAMICS SPECIFICITY: Verify the effect describes a concrete vehicle
+     dynamics or measurable outcome, not just a subsystem state change. Acceptable:
+     stopping distance increase, lateral instability, unintended acceleration,
+     delayed deceleration. Unacceptable: "system degrades", "performance reduced".
+     Flag effects that end with a generic risk statement instead of a specific
+     physical outcome.
+  5. TEMPLATE REPETITION: Flag rows where repeated template-style phrasing appears
+     (same effect structure with only the component name swapped).
+  6. DANGEROUS CLASSIFICATION AUDIT: Verify potentially_dangerous classification:
+     if true, the effect must describe unintended vehicle motion or physical contact;
+     if false, no unintended motion or contact results from the effect. Flag rows
+     where all rows in a function are marked true without differentiation.
+  7. CHAIN COHERENCE: effect must plausibly result from the stated cause and
+     deviation. Flag logical non-sequiturs.
+  8. PHYSICS CONTRADICTION: Flag effects that contradict cause physics.
+     Braking activation cannot result in acceleration. Increased braking force
+     cannot produce unintended acceleration. The effect domain must be consistent
+     with the cause domain.
+
+  9. GUIDEWORD EFFECT DIVERSIFICATION: For each function, verify that different
+     guidewords produce distinct vehicle behavior types. Flag when "no" and "less"
+     produce the same effect, or when three or more guidewords in the same function
+     share identical behavior (e.g., all describe "extended stopping distance").
+     Each guideword should map to a unique consequence pathway.
+  10. PARKING CONTEXT APPROPRIATENESS: Unless the function or system notes
+      explicitly reference highway operation, effects should describe low-speed
+      parking-appropriate outcomes. Flag highway-centric outcomes (e.g., "high-speed
+      lane departure", "rear-end collision with traffic") when the function context
+      is parking or low-speed maneuvering.
+  11. ANTI-TEMPLATE CONTENT: Flag groups of rows within the same function where
+      effects have near-identical content — same motion behavior and same outcome
+      phrase with only component names swapped. Each guideword's effect must have
+      distinct motion behavior content, not just different component names.
+  12. CAUSE-DOMAIN COHERENCE: Identify the cause's failure domain (hardware,
+      ECU/software, communication, electrical, perception/sensor). Verify the
+      effect traces through that domain's propagation path. For perception
+      causes, the path must be: detection failure -> incorrect scene model ->
+      wrong planning/control decision -> vehicle-level consequence. Flag effects
+      where the propagation mechanism mismatches the cause domain.
+  13. RISK BALANCE AUDIT: If more than 70% of rows within a function are marked
+      potentially_dangerous=true, flag the function group. Identify rows where
+      "other than", "as well as", or "part of" guidewords produce effects that are
+      inconveniences rather than hazards (degraded performance, delayed operation,
+      suboptimal system state, fallback to manual or degraded mode).
+
+  On RETURN, provide suggestions_by_row with specific, actionable guidance.
+  Good suggestion example:
+    {"row_id":"L3-9","fields":["effect"],"problem":"effect restates cause","suggestion":"Describe the vehicle-level outcome: what happens to braking distance, stability, or driver control."}
+  Bad suggestion example:
+    {"row_id":"L3-9","fields":["effect"],"problem":"not good enough","suggestion":"improve it"}
+
+  If additional context (notes or RAG material) is appended below, use it to
+  verify that effects trace through correct subsystem interactions:
+  - Flag effects that reference subsystems not present in the described system.
+  - Verify propagation paths match the system architecture.
+  - Check that safety consequences are appropriate for the operating context.
+  Do not copy context verbatim.
+
+payload_template: |
+  {"report": {{validator_report}}, "rows": {{rows_l3_json}}}
+
+output_schema: |
+  {"decision":"OK|RETURN|ESCALATE","scope":"L3","issues":["..."],"suggestions":["..."],
+   "suggestions_by_row":[{"row_id":"L3-9","fields":["effect"],"problem":"...","suggestion":"..."}]}
+constraints: |
+  - When decision="RETURN": suggestions_by_row length MUST be >=1.
+  - Keep row_id/function/guideword unchanged.
+  - Effect must be ≤24 words.
+  - Effect must not restate the deviation or cause; it must describe a system/vehicle-level consequence.
+  - potentially_dangerous: true only if the effect plausibly leads to unintended vehicle motion or physical contact; false when the vehicle remains stationary, enters a safe state, or only convenience/precision is affected. Classification must follow propagation logic.
+  - Ban vague words unless made specific: malfunction, failure, issue, error.
+  - Ban generic safety phrases in effect: "risk of collision", "risking collision",
+    "unpredictable behavior", "potential hazards", "potential hazard", "dangerous situation",
+    "safety risk", "risking loss of control", "loss of control", "may cause an accident", "unintended consequences",
+    "risking obstacle contact".
+  - Flag near-identical effect phrasing across rows for the same function; each guideword must produce distinct vehicle motion behavior.
+  - Effect must trace through the cause's failure domain; flag domain mismatches.
+  - For parking/low-speed functions, flag highway-style outcomes when parking-appropriate outcomes would be more realistic.

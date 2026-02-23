@@ -1,0 +1,93 @@
+--- PAGE 1 ---
+
+OMB Control No.:  2127-0004
+Part 573 Safety Recall Report 24V-693
+The information contained in this report was submitted pursuant to 49 CFR §573
+Manufacturer Name : Kia America, Inc.
+Submission Date : SEP 17, 2024
+NHTSA Recall No. : 24V-693
+Manufacturer Recall No. : SC324
+Manufacturer Information :
+Manufacturer Name : Kia America, Inc.
+Address : 111 Peters Canyon Road
+Irvine CA 92606
+Company phone : 800-333-4542
+Population :
+Number of potentially involved : 12,400
+Estimated percentage with defect : 100 %
+Vehicle Information :
+Vehicle 1 : 2024-2024 Kia EV9
+Vehicle Type : LIGHT VEHICLES
+Body Style : ALL
+Power Train : HYBRID ELECTRIC
+Descriptive Information : Certain 2024 model year EV9 GT-Line and Land vehicles equipped with Remote 
+Smart Parking Assist (RSPA) manufactured from September 25, 2023 through May 
+28, 2024. 
+
+The recall population was determined by a review of vehicle and supplier production 
+records. The vehicles subject to this recall were not produced in VIN order. 
+Customers seeking information about their specific vehicle will be referred to Kia’s 
+Customer Care Center or their Kia dealer. 
+Production Dates : SEP 25, 2023 - MAY 28, 2024
+VIN Range 1 : Begin : NR End : NR Not sequential
+Description of Defect :
+Description of the Defect : The subject vehicles are equipped with a feature called Remote Smart Parking 
+Assist (RSPA). RSPA allows a driver to remotely move the vehicle forward or 
+reverse by pressing and holding a button on the key fob. Due to an error with 
+the Integrated Electronic Brake (IEB) software, repeated RSPA stops at or less 
+than approximately 2 mph may result in the application of insufficient brake 
+pressure. Insufficient brake pressure can result in extended stopping distances 
+while using RSPA.
+FMVSS 1 : NR
+FMVSS 2 : NR
+Description of the Safety Risk : Extended stopping distances can increase the risk of injury to a pedestrian.
+
+
+--- PAGE 2 ---
+
+Page 2Part 573 Safety Recall Report 24V-693
+The information contained in this report was submitted pursuant to 49 CFR §573
+Description of the Safety Risk : 
+Description of the Cause : Integrated Electronic Brake (IEB) software logic error. 
+Identification of Any Warning 
+that can Occur : 
+None.
+Involved Components :
+Component Name 1 : UNIT ASSY-INTEGRATED ELECTRIC BRAKE
+Component Description : Integrated Electronic Brake
+Component Part Number : 58520-XA000
+Supplier Identification :
+Component Manufacturer 
+Name : HL Mando
+Address : 32, Hamanho-gil, Poseung-eup
+Pyeongtaek-si, Gyeonggi-do Pyeongtaek-si Foreign States 17962
+Country : Korea, Republic of
+Chronology :
+See attached document titled “2024MY EV9 Remote Smart Parking Assist Chronology”.
+Description of Remedy :
+Description of Remedy Program : All owners of the subject vehicles will be notified by first class mail with 
+instructions to bring their vehicle to a Kia dealer. Kia dealers will be 
+instructed to update the Integrated Electronic Brake (IEB) software with 
+improved logic. Kia will reimburse owners for repair expenses already 
+incurred pursuant to Kia’s General Reimbursement Plan filed May 1, 2024.
+How Remedy Component Differs 
+from Recalled Component :
+The updated IEB software will apply high brake pressure in all RSPA 
+braking conditions.
+Identify How/When Recall Condition 
+was Corrected in Production : 
+2024MY EV9 vehicles manufactured beginning on 5/29/2024 have the 
+updated IEB software installed.
+
+
+--- PAGE 3 ---
+
+Page 3Part 573 Safety Recall Report 24V-693
+The information contained in this report was submitted pursuant to 49 CFR §573
+Recall Schedule :
+Description of Recall Schedule : The planned dealer notification begin and end date is September 20, 
+2024. The planned owner notification begin and end date is October 18, 
+2024.
+Planned Dealer Notification Date : SEP 20, 2024 - SEP 20, 2024
+Planned Owner Notification Date : OCT 18, 2024 - OCT 18, 2024
+* NR - Not Reported

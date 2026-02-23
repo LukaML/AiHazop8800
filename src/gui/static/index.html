@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HAZOP LLM Analysis</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#2563eb',
+                        'primary-hover': '#1d4ed8',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Minimal custom styles for spinner animation */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+        /* Slide-in panel animation */
+        .slide-panel {
+            transform: translateX(100%);
+            transition: transform 0.3s ease-in-out;
+        }
+        .slide-panel.open {
+            transform: translateX(0);
+        }
+        /* Custom scrollbar for table */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        /* Key status styling */
+        .key-status.configured {
+            color: #10b981; /* green-500 */
+        }
+        .key-status.not-configured {
+            color: #9ca3af; /* gray-400 */
+        }
+    </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-sky-100 to-blue-200">
+    <div class="min-h-screen flex flex-col">
+        <!-- Header -->
+        <header class="bg-blue-600 shadow-sm px-6 py-4 flex items-center gap-4">
+            <h1 class="text-xl font-semibold text-white">HAZOP LLM Analysis</h1>
+            <span class="text-sm text-blue-100">Human-in-the-Loop Safety Analysis</span>
+        </header>
+
+        <!-- Main Content - Bento Grid Layout -->
+        <main class="flex-1 p-6 flex gap-6 overflow-hidden">
+            <!-- Setup Panel (Left) -->
+            <aside class="w-80 min-w-[320px] bg-white rounded-xl shadow-lg flex flex-col overflow-y-auto max-h-[calc(100vh-120px)] relative" id="setup-panel">
+                <!-- Config Loading Overlay -->
+                <div id="config-loading" class="hidden absolute inset-0 flex items-center justify-center backdrop-blur-sm bg-white/70 z-30 rounded-xl">
+                    <div class="flex flex-col items-center gap-3 p-6 bg-white rounded-xl shadow-lg">
+                        <div class="spinner w-10 h-10 border-4 border-slate-300 border-t-blue-600 rounded-full"></div>
+                        <span class="text-base font-medium text-slate-700" id="config-loading-text">Running pipeline...</span>
+                    </div>
+                </div>
+
+                <div class="bg-blue-600 px-5 py-3 rounded-t-xl">
+                    <h2 class="text-lg font-semibold text-white">Configuration</h2>
+                </div>
+                <div class="p-5 flex flex-col gap-4">
+
+                <!-- Provider Selection -->
+                <section class="flex flex-col gap-2">
+                    <label class="text-sm font-medium text-slate-600">LLM Provider</label>
+                    <div class="flex flex-col gap-1.5" id="provider-group">
+                        <label class="flex items-center gap-2 cursor-pointer text-sm">
+                            <input type="radio" name="provider" value="openai" checked class="accent-blue-600">
+                            <span>OpenAI</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer text-sm">
+                            <input type="radio" name="provider" value="gemini" class="accent-blue-600">
+                            <span>Gemini</span>
+                        </label>
+                        <label class="flex items-center gap-2 cursor-pointer text-sm">
+                            <input type="radio" name="provider" value="groq" class="accent-blue-600">
+                            <span>Groq</span>
+                        </label>
+                    </div>
+                </section>
+
+                <!-- API Key -->
+                <section class="flex flex-col gap-2" id="api-key-section">
+                    <label class="text-sm font-medium text-slate-600" for="api-key">API Key</label>
+                    <div class="flex gap-2">
+                        <input type="password" id="api-key" placeholder="Enter API key..." autocomplete="off"
+                            class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+                        <button type="button" id="set-key-btn" class="px-4 py-2 bg-slate-500 hover:bg-slate-600 text-white text-sm font-medium rounded-lg">Set Key</button>
+                    </div>
+                    <span class="text-xs mt-1" id="key-status"></span>
+                </section>
+
+                <!-- Model Selection -->
+                <section class="flex flex-col gap-2">
+                    <label class="text-sm font-medium text-slate-600" for="model-select">Model</label>
+                    <select id="model-select" class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+                        <option value="">Default for provider (see below)</option>
+                        <optgroup label="OpenAI">
+                            <option value="gpt-5.2">gpt-5.2</option>
+                            <option value="gpt-5.1">gpt-5.1</option>
+                            <option value="gpt-5">gpt-5</option>
+                            <option value="gpt-5-mini">gpt-5-mini</option>
+                            <option value="gpt-5-nano">gpt-5-nano</option>
+                            <option value="gpt-4o">gpt-4o</option>
+                            <option value="gpt-4.1">gpt-4.1</option>
+                            <option value="gpt-4o-mini">gpt-4o-mini</option>
+                            <option value="gpt-3.5-turbo">gpt-3.5-turbo (default)</option>
+                        </optgroup>
+                        <optgroup label="Gemini">
+                            <option value="gemini-2.5-flash">gemini-2.5-flash (default)</option>
+                            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+                        </optgroup>
+                        <optgroup label="Groq">
+                            <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (default)</option>
+                            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+                            <option value="moonshotai/kimi-k2-instruct-0905">Kimi K2-0905 (1T MoE, 256k ctx)</option>
+                        </optgroup>
+                    </select>
+                </section>
+
+                <!-- Functions Input -->
+                <section class="flex flex-col gap-2">
+                    <label class="text-sm font-medium text-slate-600">Functions</label>
+                    <div class="flex flex-col gap-2">
+                        <input type="file" id="functions-file" accept=".txt,.yaml,.yml,.json" hidden>
+                        <button type="button" id="upload-functions-btn" class="px-4 py-2 bg-slate-500 hover:bg-slate-600 text-white text-sm font-medium rounded-lg">
+                            Upload File
+                        </button>
+                        <span class="text-xs text-slate-400" id="functions-filename"></span>
+                    </div>
+                    <textarea id="functions-text" rows="4" placeholder="Or enter functions (one per line)..."
+                        class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-y min-h-[60px]"></textarea>
+                    <span class="text-xs text-slate-400" id="function-count">0 functions</span>
+                </section>
+
+                <!-- RAG Section -->
+                <section class="flex flex-col gap-2">
+                    <label class="flex items-center gap-2 cursor-pointer text-sm">
+                        <input type="checkbox" id="rag-enabled" class="w-4 h-4 accent-blue-600">
+                        <span class="font-medium text-slate-600">Enable RAG</span>
+                    </label>
+                    <div id="rag-options" class="hidden mt-2 pt-2 border-t border-slate-200 flex flex-col gap-2">
+                        <label class="text-sm font-medium text-slate-600" for="rag-embedder">Embeddings</label>
+                        <select id="rag-embedder" class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+                            <option value="local">Local (TF-IDF)</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="gemini">Gemini</option>
+                        </select>
+                        <div class="flex flex-col gap-2">
+                            <input type="file" id="rag-files" multiple accept=".txt,.csv,.xlsx,.pdf,.md" hidden>
+                            <button type="button" id="upload-rag-btn" class="px-4 py-2 bg-slate-500 hover:bg-slate-600 text-white text-sm font-medium rounded-lg">
+                                Upload RAG Docs
+                            </button>
+                            <span class="text-xs text-slate-400">Supported: .txt, .md, .csv, .xlsx, .xls, .pdf</span>
+                            <span class="text-xs text-slate-400" id="rag-filenames"></span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Notes -->
+                <section class="flex flex-col gap-2">
+                    <label class="text-sm font-medium text-slate-600" for="notes">System Notes</label>
+                    <textarea id="notes" rows="3" placeholder="Additional context or notes..."
+                        class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-y min-h-[60px]"></textarea>
+                </section>
+
+                <!-- Max Deviations -->
+                <section class="flex flex-col gap-2">
+                    <label class="text-sm font-medium text-slate-600" for="max-devs">Max Deviations per Guideword</label>
+                    <input type="number" id="max-devs" value="1" min="1" max="5"
+                        class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 w-full">
+                </section>
+
+                <!-- Run Button -->
+                <button type="button" id="run-analysis-btn" class="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg mt-2">
+                    Run Analysis
+                </button>
+                </div>
+            </aside>
+
+            <!-- Results Section (Right) -->
+            <section class="flex-1 flex flex-col min-w-0 bg-white rounded-xl shadow-lg overflow-auto custom-scrollbar max-h-[calc(100vh-120px)] relative" id="results-section">
+                <!-- Results Loading Overlay -->
+                <div id="results-loading" class="hidden absolute inset-0 flex items-center justify-center bg-white/90 z-20 pointer-events-auto">
+                    <div class="flex flex-col items-center gap-4 p-8 bg-white rounded-xl shadow-lg border border-slate-200">
+                        <div class="spinner w-12 h-12 border-4 border-slate-300 border-t-blue-600 rounded-full"></div>
+                        <span class="text-base font-medium text-slate-700" id="results-loading-text">Running analysis...</span>
+                    </div>
+                </div>
+
+                <!-- Results Header -->
+                <div class="bg-blue-600 px-5 py-4 rounded-t-xl flex justify-between items-center">
+                    <h2 class="text-lg font-semibold text-white">Results</h2>
+                    <div class="flex items-center gap-3">
+                        <span id="results-info" class="text-sm text-blue-100"></span>
+                        <button type="button" id="import-html-btn"
+                            class="px-4 py-2 bg-white/20 hover:bg-white/30 text-white text-sm font-medium rounded-lg">
+                            Import HTML
+                        </button>
+                        <input type="file" id="import-html-file" accept=".html,.htm" hidden>
+                        <button type="button" id="export-csv-btn" disabled
+                            class="px-4 py-2 bg-white/20 hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg">
+                            Export CSV
+                        </button>
+                        <button type="button" id="export-html-btn" disabled
+                            class="px-4 py-2 bg-white/20 hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg">
+                            Export HTML
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Bulk Action Bar (hidden by default) -->
+                <div id="bulk-action-bar" class="hidden px-5 py-3 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span id="selected-count" class="text-sm font-medium text-blue-800">0 rows selected</span>
+                        <button type="button" id="clear-selection-btn" class="text-sm text-blue-600 hover:text-blue-800 underline">Clear selection</button>
+                    </div>
+                    <button type="button" id="bulk-regen-btn" class="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-lg">
+                        Regenerate Selected
+                    </button>
+                </div>
+
+                <!-- Table Container -->
+                <div class="flex-1 overflow-auto custom-scrollbar">
+                    <table class="w-full text-sm" id="results-table">
+                        <thead class="bg-slate-100 sticky top-0 z-10">
+                            <tr>
+                                <th class="px-3 py-3 text-left font-semibold text-slate-700 w-10">
+                                    <input type="checkbox" id="select-all-checkbox" class="w-4 h-4 accent-blue-600 cursor-pointer">
+                                </th>
+                                <th class="px-3 py-3 text-left font-semibold text-slate-700">Row ID</th>
+                                <th class="px-3 py-3 text-left font-semibold text-slate-700">Function</th>
+                                <th class="px-3 py-3 text-left font-semibold text-slate-700">Guideword</th>
+                                <th class="px-3 py-3 text-left font-semibold text-slate-700">Deviation</th>
+                                <th class="px-3 py-3 text-left font-semibold text-slate-700">Cause</th>
+                                <th class="px-3 py-3 text-left font-semibold text-slate-700">Effect</th>
+                                <th class="px-3 py-3 text-left font-semibold text-slate-700">Dangerous</th>
+                                <th class="px-3 py-3 text-left font-semibold text-slate-700">Rating</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body">
+                            <tr class="empty-row">
+                                <td colspan="9" class="px-3 py-10 text-center text-slate-400">No results yet. Configure and run an analysis.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Full Page Loading Blocker (during pipeline run) -->
+    <div id="page-blocker" class="hidden fixed inset-0 z-40 bg-black/20 pointer-events-auto"></div>
+
+    <!-- Edit Side Panel (Slide-in from right) -->
+    <div class="fixed inset-0 z-50 hidden" id="edit-modal">
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-black/40" id="modal-backdrop"></div>
+
+        <!-- Side Panel -->
+        <div class="slide-panel absolute right-0 top-0 h-full w-full max-w-lg bg-white shadow-2xl flex flex-col" id="edit-panel">
+            <!-- Regeneration Loading Overlay -->
+            <div id="regen-loading" class="hidden absolute inset-0 flex items-center justify-center backdrop-blur-sm bg-white/70 z-30">
+                <div class="flex flex-col items-center gap-3 p-6 bg-white rounded-xl shadow-lg">
+                    <div class="spinner w-10 h-10 border-4 border-slate-300 border-t-teal-500 rounded-full"></div>
+                    <span class="text-base font-medium text-slate-700" id="regen-loading-text">Regenerating...</span>
+                </div>
+            </div>
+
+            <!-- Panel Header -->
+            <div class="px-6 py-4 flex justify-between items-center bg-blue-600">
+                <h3 class="text-lg font-semibold text-white">Edit Row</h3>
+                <button type="button" class="text-2xl text-white/70 hover:text-white leading-none" id="modal-close">&times;</button>
+            </div>
+
+            <!-- Panel Body -->
+            <div class="flex-1 overflow-y-auto p-6 flex flex-col gap-5">
+                <!-- Read-only fields -->
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-medium text-slate-600">Row ID</label>
+                        <input type="text" id="modal-row-id" readonly
+                            class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-100 text-slate-500">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-medium text-slate-600">Function</label>
+                        <input type="text" id="modal-function" readonly
+                            class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-100 text-slate-500">
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-medium text-slate-600">Guideword</label>
+                        <input type="text" id="modal-guideword" readonly
+                            class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-100 text-slate-500">
+                    </div>
+                </div>
+
+                <!-- Editable fields -->
+                <div class="flex flex-col gap-1">
+                    <label class="text-sm font-medium text-slate-600" for="modal-deviation">Deviation</label>
+                    <textarea id="modal-deviation" rows="2"
+                        class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-y"></textarea>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <label class="text-sm font-medium text-slate-600" for="modal-cause">Cause</label>
+                    <textarea id="modal-cause" rows="2"
+                        class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-y"></textarea>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                    <label class="text-sm font-medium text-slate-600" for="modal-effect">Effect</label>
+                    <textarea id="modal-effect" rows="2"
+                        class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-y"></textarea>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="modal-dangerous" class="w-4 h-4 accent-blue-600">
+                        <label for="modal-dangerous" class="text-sm font-medium text-slate-600 cursor-pointer">Potentially Dangerous</label>
+                    </div>
+                    <div class="flex flex-col gap-1">
+                        <label class="text-sm font-medium text-slate-600" for="modal-rating">Rating</label>
+                        <select id="modal-rating"
+                            class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+                            <option value="unrated">Unrated</option>
+                            <option value="correct">Correct</option>
+                            <option value="partially_correct">Partially Correct</option>
+                            <option value="incorrect">Incorrect</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Regeneration Section -->
+                <div class="mt-4 pt-5 border-t border-slate-200">
+                    <h4 class="text-sm font-semibold text-slate-600 mb-4">Regenerate with AI</h4>
+                    <div class="flex flex-col gap-4">
+                        <div class="flex flex-col gap-1">
+                            <label class="text-sm font-medium text-slate-600" for="modal-regen-scope">Scope</label>
+                            <select id="modal-regen-scope"
+                                class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+                                <option value="L3">L3 (Effect only)</option>
+                                <option value="L2">L2 (Cause + Effect)</option>
+                                <option value="L1">L1 (All - Deviation + Cause + Effect)</option>
+                            </select>
+                        </div>
+                        <div class="flex flex-col gap-1">
+                            <label class="text-sm font-medium text-slate-600" for="modal-suggestion">Suggestion for LLM</label>
+                            <textarea id="modal-suggestion" rows="2" placeholder="Optional guidance for regeneration..."
+                                class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-y"></textarea>
+                        </div>
+                        <button type="button" id="modal-regen-btn" class="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-lg">
+                            Regenerate with AI
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel Footer -->
+            <div class="px-6 py-4 border-t border-slate-200 flex justify-end gap-3 bg-slate-50">
+                <button type="button" id="modal-cancel-btn" class="px-4 py-2 bg-slate-500 hover:bg-slate-600 text-white text-sm font-medium rounded-lg">Cancel</button>
+                <button type="button" id="modal-save-btn" class="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-lg">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Regeneration Modal -->
+    <div class="fixed inset-0 z-50 hidden flex items-center justify-center" id="bulk-regen-modal">
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-black/40" id="bulk-modal-backdrop"></div>
+
+        <!-- Modal -->
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden">
+            <!-- Bulk Regen Loading Overlay -->
+            <div id="bulk-regen-loading" class="hidden absolute inset-0 flex items-center justify-center backdrop-blur-sm bg-white/70 z-30 rounded-xl">
+                <div class="flex flex-col items-center gap-3 p-6 bg-white rounded-xl shadow-lg">
+                    <div class="spinner w-10 h-10 border-4 border-slate-300 border-t-teal-500 rounded-full"></div>
+                    <span class="text-base font-medium text-slate-700" id="bulk-regen-loading-text">Regenerating rows...</span>
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center px-6 py-4 bg-blue-600 rounded-t-xl">
+                <h3 class="text-lg font-semibold text-white">Bulk Regenerate</h3>
+                <button type="button" class="text-2xl text-white/70 hover:text-white leading-none" id="bulk-modal-close">&times;</button>
+            </div>
+
+            <div class="p-6 flex flex-col gap-5">
+            <p id="bulk-modal-info" class="text-sm text-slate-600">Regenerating 0 rows</p>
+
+            <div class="flex flex-col gap-1">
+                <label class="text-sm font-medium text-slate-600" for="bulk-regen-scope">Scope</label>
+                <select id="bulk-regen-scope"
+                    class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
+                    <option value="L3">L3 (Effect only)</option>
+                    <option value="L2">L2 (Cause + Effect)</option>
+                    <option value="L1">L1 (All - Deviation + Cause + Effect)</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col gap-1">
+                <label class="text-sm font-medium text-slate-600" for="bulk-suggestion">Suggestion for LLM</label>
+                <textarea id="bulk-suggestion" rows="3" placeholder="Optional guidance for regeneration..."
+                    class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 resize-y"></textarea>
+            </div>
+
+            <div class="flex justify-end gap-3 mt-2">
+                <button type="button" id="bulk-modal-cancel" class="px-4 py-2 bg-slate-500 hover:bg-slate-600 text-white text-sm font-medium rounded-lg">Cancel</button>
+                <button type="button" id="bulk-modal-confirm" class="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-medium rounded-lg">Regenerate</button>
+            </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Changes Modal (shown after regeneration) -->
+    <div class="fixed inset-0 z-50 hidden flex items-center justify-center" id="changes-modal">
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-black/40" id="changes-backdrop"></div>
+
+        <!-- Modal -->
+        <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+            <div class="flex justify-between items-center px-6 py-4 bg-blue-600 rounded-t-xl">
+                <h3 class="text-lg font-semibold text-white">Regeneration Complete</h3>
+                <button type="button" class="text-2xl text-white/70 hover:text-white leading-none" id="changes-close">&times;</button>
+            </div>
+            <div id="changes-content" class="space-y-4 p-6 overflow-y-auto">
+                <!-- Will be populated with before/after comparison -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts (cache-busted with version) -->
+    <script src="/static/js/state.js?v=11"></script>
+    <script src="/static/js/api.js?v=11"></script>
+    <script src="/static/js/components/setup-panel.js?v=11"></script>
+    <script src="/static/js/components/results-table.js?v=11"></script>
+    <script src="/static/js/components/edit-modal.js?v=11"></script>
+    <script src="/static/js/app.js?v=11"></script>
+</body>
+</html>

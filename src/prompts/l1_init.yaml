@@ -1,0 +1,120 @@
+title: L1_INIT_FULL_COVERAGE
+inputs:
+  - functions_json   # JSON array of functions (strings)
+  - guideword_map_json  # JSON object {guideword -> description}
+  - max_devs_per_gw  # integer (e.g., 2)
+  - notes            # optional string
+instructions: |
+  Generate HAZOP deviations with FULL guideword coverage.
+  For each FUNCTION and for EACH of the 11 fixed guidewords, produce >= 1 deviation (max {{max_devs_per_gw}}).
+  If a guideword seems inapplicable, still output a row with a conservative deviation and set applicability_score=0.0 with a short applicability_note ("not applicable").
+  Keep function names unchanged. Keep deviations concise and technical.
+  Fixed guidewords and meanings are provided in 'guideword_map_json'.
+
+  You MUST return EXACTLY at least {{expected_min_rows}} rows (i.e., functions_count × 11).
+  Do not aggregate by function. Each row = (function, single guideword, deviation, applicability fields).
+  Write the deviation slightly more descriptive when helpful (about 8–16 words).
+  
+  Make it technically meaningful by referencing a specific component, signal,
+  state, or timing aspect of the deviation. Keep it concise, strictly technical,
+  and avoid generic formulations.
+
+  IMPORTANT: Describe only what deviates from the intended behaviour. Do **not**
+  explain why it happens or mention root causes or failure mechanisms. The
+  'deviation' field should never mention faulty components, leaks,
+  short-circuits, sensor failures, or any other cause. Focus solely on what
+  behaviour is observed to differ from the nominal function.
+
+  If notes or reference material are provided, PRIORITIZE domain-specific
+  deviations grounded in the described system over generic formulations.
+  Use component names, signal names, and parameter ranges from the notes.
+  Do **not** include any causes or failure mechanisms from the notes in
+  the deviation description.
+
+  Per IEC 61882, guide word application should be a creative exploration of
+  what could deviate, not a rote checklist. For each guideword, consider what
+  specific, non-obvious deviation it reveals for this particular function.
+  Avoid defaulting to the most generic interpretation when a more specific
+  parking-context deviation exists.
+
+  The deviation must name a concrete physical or logical parameter (pressure,
+  torque, speed, flow rate, signal timing, actuation state, temperature,
+  voltage, position) and describe its specific change. Do not write abstract
+  deviations that omit the affected parameter.
+  Ban the following vague phrases in deviation text: "incorrect operation",
+  "abnormal behavior", "improper functioning", "unexpected response". Replace
+  them with specific parameter-level descriptions.
+  For the "reverse" guideword: the deviation must describe a true inversion of
+  direction, polarity, or sequence — not merely a wrong mode or degraded state.
+
+  For braking-related functions specifically, the "reverse" guideword:
+    - Does NOT mean: braking in the opposite physical direction, or reverse
+      braking pressure.
+    - MUST represent: inversion of control logic (e.g., activation when the
+      function should be deactivated, deactivation when it should be activated),
+      or polarity inversion in the command signal.
+    - If a true physical reversal is impossible for the function, rewrite the
+      deviation to describe a control-logic or signal-polarity inversion instead.
+
+  For temporal guidewords (early, late, before, after) applied to non-timing
+  functions, interpret them in terms of the function's activation sequence
+  or operational phase. Example: function "Provide brake assist" + guideword
+  "before" → "Brake assist engages before the driver applies the brake pedal."
+  If a guideword truly has no meaningful interpretation for a function, set
+  applicability_score=0.0 and write a conservative minimal deviation.
+
+  EXAMPLE (single function + single guideword):
+  Input: function="Provide ABS braking", guideword="less"
+  Output row:
+  {"row_id":"L1-0","function":"Provide ABS braking","guideword":"less",
+   "deviation":"ABS modulation cycles deliver reduced braking pressure to front calipers during emergency stop.",
+   "applicability_score":1.0,"applicability_note":"directly applicable"}
+
+  STRICT OUTPUT INSTRUCTION:
+    - Output JSON ONLY.
+    - Output MUST be a top-level JSON ARRAY of row objects.
+    - Do NOT wrap in any outer object (no keys like "rows", "data", "items",
+      "result", "output", or "deviations").
+    - Each array element MUST be a JSON object — NEVER a string line.
+    - Do NOT include comments, explanations, or text outside the JSON.
+output_schema: |
+  type: array
+  items:
+    type: object
+    required:
+      - function
+      - guideword
+      - deviation
+      - applicability_score
+      - applicability_note
+    properties:
+      row_id:
+        type: string
+      function:
+        type: string
+      guideword:
+        type: string
+      deviation:
+        type: string
+      applicability_score:
+        type: number
+      applicability_note:
+        type: string
+constraints: |
+  - Output JSON ONLY.
+  - Return a JSON ARRAY (top-level). Do NOT wrap inside keys like "rows", "data", "items", "result", "output", or "deviations".
+  - Each row must contain: row_id, function, guideword, deviation, applicability_score, applicability_note.
+  - guideword must be one of: no|more|less|as well as|part of|reverse|other than|early|late|before|after
+  - Do NOT include commentary, metadata, or code fences.
+  - Number of rows MUST be ≥ (functions × 11 guidewords).
+  - Ban vague words unless made specific: malfunction, failure, issue, error.
+  - Guideword semantics must be reflected in deviation: no=complete absence, more=quantitative excess, less=quantitative deficiency, reverse=logical/physical inversion, early=earlier than intended, late=later than intended, before=out-of-sequence before prerequisite, after=out-of-sequence after needed, as well as=unintended additional behavior, part of=incomplete execution, other than=unintended different behavior.
+  - Deviation must reference a concrete physical or logical parameter change.
+  - Ban in deviation: "incorrect operation", "abnormal behavior", "improper functioning", "unexpected response".
+  - For braking-related "reverse": deviation must describe control-logic or signal-polarity inversion, not physically impossible direction reversal.
+payload_template: |
+  {
+    "functions": {{functions_json}},
+    "guidewords": {{guideword_map_json}},
+    "notes": {{notes}}
+  }

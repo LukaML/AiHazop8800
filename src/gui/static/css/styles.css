@@ -1,0 +1,19 @@
+/* HAZOP GUI - Minimal custom styles (Tailwind handles most styling) */
+
+/* These styles are kept for backwards compatibility or specific overrides */
+
+/* Spinner animation is now in index.html inline styles */
+
+/* Key status styling */
+.key-status.configured {
+    color: #10b981; /* green-500 */
+}
+
+.key-status.not-configured {
+    color: #9ca3af; /* gray-400 */
+}
+
+/* Hidden class helper */
+.hidden {
+    display: none !important;
+}

@@ -1,0 +1,71 @@
+title: "L1 reviewer"
+inputs:
+  - validator_report
+  - rows_l1_json
+instructions: |
+  Review L1 rows for internal logic only: function → guideword → deviation.
+
+  For each row, verify the deviation clearly reflects the guideword meaning:
+    no=complete absence of function, more=quantitative excess beyond design intent,
+    less=quantitative deficiency below design intent, reverse=logical or physical
+    inversion of intended behavior, early=function activates earlier than intended,
+    late=function activates later than intended, before=function occurs out-of-sequence
+    before a prerequisite, after=function occurs out-of-sequence after it was needed,
+    as well as=unintended additional behavior alongside normal function,
+    part of=incomplete or partial execution of function,
+    other than=entirely different/unintended behavior replacing normal function.
+  Flag any row where the deviation does not match its guideword (e.g., a "reverse"
+  guideword with a deviation that describes absence rather than inversion, or a "more"
+  guideword with a deviation describing partial loss rather than excess).
+
+  Verify each deviation names a concrete physical or logical parameter (pressure,
+  torque, speed, flow, signal timing, actuation state) and describes its specific
+  change. Flag deviations that use abstract descriptions ("incorrect operation",
+  "abnormal behavior") without naming the affected parameter.
+  For "reverse" guideword: verify the deviation describes true inversion
+  (direction, polarity, sequence reversal), not merely wrong mode or degraded
+  performance.
+  For braking-related functions with "reverse" guideword: verify the deviation
+  describes control-logic or signal-polarity inversion. Flag deviations that
+  describe physically impossible direction reversal (e.g., "braking in the
+  opposite physical direction" or "reverse braking pressure"). The deviation
+  should instead describe activation/deactivation inversion or command signal
+  polarity inversion.
+  Flag rows where repeated template-style phrasing appears across multiple rows
+  for the same function (e.g., same sentence structure with only the guideword
+  swapped).
+
+  The 'deviation' field must describe only the deviation itself (what differs
+  from nominal behaviour) and **must not** include explicit causes or failure
+  mechanisms. If a deviation contains a cause (for example, mentions a faulty
+  component, signal, or mechanism), flag that row for correction.
+  Do NOT enforce cross-row uniqueness (similar deviations may exist). Keep row_id/function/guideword unchanged.
+
+  If additional context (notes or RAG material) is appended below, use it to
+  verify that deviations reference correct domain components and parameters:
+  - Flag rows that use generic terms when the context names specific components.
+  - Verify parameter names and ranges match the described system.
+  - Check that deviation phrasing reflects domain-appropriate terminology.
+  Do not copy context verbatim.
+
+  Output policy:
+  - If everything is fine: {"decision":"OK","scope":"L1","issues":[],"suggestions":[],"suggestions_by_row":[]}
+  - If ANYTHING needs improvement: {"decision":"RETURN", ...} AND you MUST provide >=1 targeted row fixes in suggestions_by_row.
+    Each item: {"row_id":"L1-i","fields":["deviation","applicability_score","applicability_note"],"problem":"...","suggestion":"..."}
+  - If you cannot provide row-level suggestions (e.g., schema unclear), respond with {"decision":"ESCALATE","scope":"L1","issues":["NO_ROW_HINTS"]}
+
+payload_template: |
+  {"report": {{validator_report}}, "rows": {{rows_l1_json}}}
+
+output_schema: |
+  {"decision":"OK|RETURN|ESCALATE","scope":"L1","issues":["..."],"suggestions":["..."],
+   "suggestions_by_row":[{"row_id":"L1-0","fields":["deviation"],"problem":"...","suggestion":"..."}]}
+constraints: |
+  - When decision="RETURN": suggestions_by_row length MUST be >=1.
+  - Never ask to "revise all rows".
+  - Keep row_id/function/guideword unchanged.
+  - Ban vague words unless made specific: malfunction, failure, issue, error.
+  - Guideword semantics must be reflected in deviation: no=complete absence, more=quantitative excess, less=quantitative deficiency, reverse=logical/physical inversion, early=earlier than intended, late=later than intended, before=out-of-sequence before prerequisite, after=out-of-sequence after needed, as well as=unintended additional behavior, part of=incomplete execution, other than=unintended different behavior.
+  - Deviation must reference a concrete physical or logical parameter change.
+  - Ban in deviation: "incorrect operation", "abnormal behavior", "improper functioning", "unexpected response".
+  - For braking-related "reverse": deviation must describe control-logic or signal-polarity inversion, not physically impossible direction reversal.

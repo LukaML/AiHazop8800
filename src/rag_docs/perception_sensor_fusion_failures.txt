@@ -1,0 +1,207 @@
+PERCEPTION & SENSOR FUSION FAILURE MODES (AVP/APA CONTEXT)
+
+Purpose:
+- Catalog specific sensor failure modes and fusion algorithm weaknesses
+  relevant to automated valet parking and automated parking assist features.
+- Provide concrete failure mechanisms, parameter ranges, and environmental
+  triggers for HAZOP cause generation.
+
+
+=== CAMERA SYSTEMS ===
+
+Configuration: typically 4 fisheye cameras (190-degree FOV each) mounted
+at front bumper, rear bumper, and both side mirrors, producing a surround-
+view (bird's-eye) composite image.
+
+Failure modes:
+
+  Lens soiling: road splash, dust, and condensation deposit on lens surface.
+  Accounts for approximately 35% of camera-related field failures. Soiling
+  degrades contrast ratio below detection thresholds. Partial soiling causes
+  asymmetric detection zones — one quadrant detects obstacles while the
+  opposite quadrant is blind. Built-in lens heaters mitigate condensation but
+  not mud or road salt deposits.
+
+  Calibration drift: thermal cycling (repeated -20C to +60C exposure) causes
+  camera mounting bracket micro-shifts. Extrinsic calibration errors as small
+  as 0.3 degrees produce 5-10 cm object position errors at 3 m range. These
+  errors compound in the bird's-eye stitching algorithm, creating phantom gaps
+  or overlaps between camera views.
+
+  Saturation and bloom: direct sunlight or headlight reflection saturates the
+  CMOS sensor. High-dynamic-range (HDR) mode reduces but does not eliminate
+  saturation. At 100,000+ lux, the auto-exposure algorithm oscillates between
+  overexposed and underexposed frames, causing intermittent detection dropout
+  lasting 100-300 ms per cycle.
+
+  Rolling shutter artifacts: CMOS sensors with rolling shutter expose rows
+  sequentially (typical 15-30 ms full-frame readout). During vehicle motion
+  or vibration, vertical structures appear skewed. At parking speeds (3-5 km/h),
+  skew is typically 2-5 pixels — enough to distort parking line detection and
+  narrow-gap width estimation.
+
+  Stitching artifacts: the bird's-eye view is composited from four camera
+  streams. Objects near camera view boundaries (especially tall objects like
+  pillars, pedestrians, or open doors) exhibit duplication, stretching, or
+  disappearance in the stitching zone. A pedestrian standing at a stitching
+  boundary may appear as two half-bodies or vanish entirely from the composite.
+
+  Parking line detection failure: worn, faded, or non-standard parking markings
+  reduce line detection confidence. Detection degrades below 60% recall when
+  paint contrast ratio drops below 30%. Wet surfaces reflect surroundings onto
+  markings, further reducing contrast. Unusual marking colors (yellow on light
+  concrete) or non-standard line widths also reduce detection accuracy.
+
+
+=== ULTRASONIC SENSORS ===
+
+Configuration: typically 12 sensors — 4 front, 4 rear, 2 per side. Operating
+frequency 40-52 kHz. Maximum reliable range 3-5 m (varies by sensor model).
+Minimum detection range 15-30 cm (dead zone).
+
+Failure modes:
+
+  Membrane contamination: ice, mud, or road salt deposits on the transducer
+  membrane attenuate acoustic output by 6-12 dB. Partial contamination shifts
+  the beam pattern, creating angular blind spots. Heavy contamination prevents
+  transmission entirely, appearing identical to "no obstacle detected."
+
+  Cross-talk between adjacent sensors: when two or more sensors fire
+  simultaneously or within their echo window, one sensor receives echoes from
+  another sensor's transmission. Cross-talk produces phantom obstacles at
+  incorrect distances. Time-division multiplexing mitigates this but increases
+  total scan cycle time to 50-80 ms per full sweep.
+
+  Sound-absorbing surfaces: soft materials (clothing, foam bumpers, rubber
+  mats, shopping cart fabric covers) absorb ultrasonic energy, reducing echo
+  amplitude below detection threshold. This creates false-negative detection —
+  the sensor reports "clear" when an obstacle is present. Children wearing
+  thick winter coats are particularly vulnerable due to clothing absorption.
+
+  Extreme weather performance: ultrasonic detection reliability degrades
+  significantly in heavy rain (water droplets scatter acoustic energy), strong
+  wind (>40 km/h shifts echo paths), and extreme cold (<-20C increases air
+  absorption). Combined failure rate increases by approximately 73% in severe
+  winter conditions compared to nominal 20C dry conditions.
+
+  Temperature-dependent speed of sound: air temperature affects sound velocity
+  (331 m/s at 0C vs 349 m/s at 30C). If the sensor firmware uses a fixed
+  speed-of-sound value, distance calculations contain 3-5% error across the
+  operating temperature range. This produces systematically over- or under-
+  estimated obstacle distances.
+
+
+=== LiDAR ===
+
+Configuration: typically 16-channel solid-state or mechanical scanning LiDAR,
+905 nm wavelength, 100-200 m range in clear conditions, 10-20 Hz scan rate.
+Some parking systems use flash LiDAR with shorter range (10-30 m) but higher
+angular resolution.
+
+Failure modes:
+
+  Rain and fog scatter: water droplets in the air scatter the 905 nm beam.
+  Heavy rain (>25 mm/hr) reduces effective range by approximately 60%. Dense
+  fog (<100 m visibility) can reduce range to under 10 m, making the LiDAR
+  effectively blind beyond the nearest obstacle.
+
+  Point cloud sparsity: at close range in parking scenarios (1-5 m), the 16-
+  channel LiDAR produces only 3-8 points on a pedestrian-sized object. This
+  sparse representation makes classification unreliable — a child (0.5 m wide)
+  may register as only 1-2 points, falling below the minimum cluster size for
+  obstacle detection.
+
+  Sun saturation at 905 nm: direct sunlight contains significant energy at
+  905 nm. When the sun is within or near the sensor's field of view, ambient
+  light saturates the photodetector. This affects specific angular sectors
+  rather than the entire scan, creating directional blind zones that shift
+  with sun position.
+
+  Retroreflective interference: highly reflective surfaces (license plates,
+  safety vests, road signs) produce saturated returns that overwhelm the
+  receiver's dynamic range. The resulting range measurement may be severely
+  shortened or extended, misrepresenting obstacle distance by meters.
+
+
+=== RADAR (77 GHz mmWave) ===
+
+Configuration: typically 1-2 corner radar modules for parking applications,
+77 GHz band, 0.3-100 m range, angular resolution 5-15 degrees.
+
+Failure modes:
+
+  Multipath in parking structures: metallic surfaces (steel beams, columns,
+  metal fences, car bodies) reflect radar signals, creating multipath echoes.
+  In metallic parking structures, multipath produces ghost targets — apparent
+  obstacles at locations where no physical object exists. Ghost targets appear
+  at the sum of direct and reflected path distances.
+
+  Ghost targets from adjacent vehicles: radar signals penetrate gaps between
+  parked vehicles and reflect off objects in adjacent bays. The radar
+  interprets these returns as obstacles in the driving corridor. This effect
+  is most pronounced with narrow parking bays (2.3-2.5 m width).
+
+  Doppler ambiguity at ultra-low speed: at parking speeds below 2 km/h, the
+  Doppler frequency shift approaches the radar's minimum detectable velocity.
+  Stationary and very slow-moving objects become indistinguishable, degrading
+  the ability to differentiate a moving pedestrian from a parked vehicle.
+
+  Bumper fascia attenuation: radar signals must pass through the vehicle's
+  bumper fascia. Metallic paint, embedded heating wires, or water film on the
+  inner surface can attenuate the signal by 3-8 dB. Wet conditions increase
+  attenuation, reducing maximum detection range.
+
+
+=== SENSOR FUSION ALGORITHMS ===
+
+Architecture: parking systems typically use either late fusion (each sensor
+produces its own object list, fused at the track level) or mid-level fusion
+(feature-level fusion before classification). Some systems use occupancy grid
+fusion where each sensor votes on grid cell occupancy.
+
+Failure modes:
+
+  Temporal desynchronization: sensors operate at different frame rates (camera
+  30 fps, ultrasonic 12-20 Hz, radar 13-20 Hz, LiDAR 10-20 Hz). If timestamp
+  alignment exceeds 50 ms error, a moving pedestrian at 5 km/h is displaced
+  by 7 cm between sensor frames. This displacement creates association errors —
+  the fusion algorithm may treat one pedestrian as two separate objects or fail
+  to associate detections across sensors.
+
+  Conflicting detections: one sensor reports an obstacle while another reports
+  clear space at the same location. Common causes include sensor-specific
+  material properties (radar sees metal, camera sees glass differently) and
+  field-of-view differences. The conflict resolution policy determines whether
+  the system favors detection (safe but may cause unnecessary stops) or non-
+  detection (unsafe — may miss real obstacles).
+
+  Association errors: the data association algorithm matches detections across
+  sensors using position and velocity predictions. In cluttered parking
+  environments with many similarly-sized targets, the algorithm may incorrectly
+  associate detections — merging two close pedestrians into one track, or
+  splitting one vehicle into multiple tracks.
+
+  Occupancy grid stale data: grid-based fusion assigns occupancy probability
+  to each cell. Cells outside current sensor coverage retain their last-known
+  probability until decay timeout (typically 0.5-2 seconds). During this
+  window, a moved obstacle (e.g., pedestrian who walked away) remains marked
+  as occupied, or a newly appeared obstacle (pedestrian who walked in) remains
+  marked as free.
+
+  Confidence threshold miscalibration: the fusion algorithm uses confidence
+  thresholds to decide when detections are reliable enough to act on. Thresholds
+  calibrated for highway driving (high-speed, large objects, long range) may be
+  inappropriate for parking (low-speed, small objects, short range). Overly
+  aggressive thresholds suppress weak but valid parking-relevant detections.
+
+  Late vs mid fusion architecture tradeoffs: late fusion is simpler but cannot
+  recover information lost in per-sensor processing (e.g., if a camera DNN
+  misclassifies a child as a bollard, late fusion propagates the error). Mid-
+  level fusion can potentially correct such errors but is more complex and
+  requires precise sensor calibration.
+
+  Training data gaps: deep learning perception models trained primarily on
+  highway datasets may lack adequate representation of parking-specific objects:
+  shopping carts, low bollards, wheel stops, children at atypical heights,
+  pets, and unusual obstacle geometries. This manifests as reduced detection
+  recall or misclassification in parking scenarios.

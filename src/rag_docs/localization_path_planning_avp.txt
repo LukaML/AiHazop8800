@@ -1,0 +1,255 @@
+LOCALIZATION & PATH PLANNING — AVP/APA FAILURE MODES
+
+Purpose:
+- Document localization methods, path planning algorithms, and their specific
+  failure modes in automated valet parking and parking assist contexts.
+- Provide concrete algorithm names, accuracy ranges, and failure mechanisms
+  for HAZOP analysis.
+
+
+=== VISUAL SLAM (vSLAM) ===
+
+Architecture: simultaneous localization and mapping using camera images.
+Extracts visual features (ORB, SIFT, or learned features) from camera frames,
+matches them to a pre-built map or builds a map in real time. Typical
+localization accuracy 10-30 cm in structured environments.
+
+Failure modes:
+
+  Feature-poor environments: parking structure walls are often smooth, uniform
+  concrete with minimal visual texture. Feature extractors find fewer than the
+  minimum required keypoints (typically 50-100 per frame) for reliable pose
+  estimation. When features drop below threshold, localization uncertainty
+  grows rapidly — position error can reach 1-2 m within 5 seconds of feature
+  loss.
+
+  Dynamic object corruption: moving vehicles and pedestrians create features
+  that are not part of the static environment. If the SLAM algorithm
+  incorporates these as map features, the map becomes corrupted. Subsequent
+  localization against a corrupted map produces systematic position errors.
+  Dynamic feature filtering helps but may also reject legitimate features on
+  slowly changing surfaces.
+
+  Lighting change between mapping and operation: the visual map was built
+  under one lighting condition (e.g., daytime natural light), but the vehicle
+  operates under different lighting (nighttime artificial, mixed sun/shadow).
+  Feature descriptors change with illumination, causing match failures. Map
+  relocalization can fail entirely if lighting differs dramatically from the
+  mapping session.
+
+  Loop closure failure: in large parking structures with repetitive geometry,
+  the SLAM system may fail to recognize a previously visited location. Without
+  loop closure, accumulated drift errors are never corrected. After traversing
+  100 m of parking structure corridors, drift can accumulate to 0.5-2.0 m
+  without loop closure correction.
+
+  Map staleness: a pre-built map becomes outdated when the parking environment
+  changes — construction barriers added, paint markings refreshed in different
+  positions, vehicles occupying previously empty reference areas. The SLAM
+  system attempts to localize against features that no longer exist, producing
+  either localization failure or incorrect position estimates.
+
+
+=== VISUAL-INERTIAL ODOMETRY (VIO) ===
+
+Architecture: combines camera visual tracking with IMU (inertial measurement
+unit, typically 6-axis accelerometer + gyroscope) data to estimate vehicle
+motion. Provides smooth, high-frequency (100-200 Hz) pose updates between
+camera frames (30-60 Hz).
+
+Failure modes:
+
+  IMU bias drift at low speed: at parking speeds (0-10 km/h), the vehicle
+  acceleration signals are very small (0.01-0.5 m/s^2) and close to the IMU
+  accelerometer bias instability (typically 0.01-0.05 m/s^2 for automotive-
+  grade MEMS). Over a 60-second parking maneuver, uncompensated bias drift
+  accumulates to 0.2-1.0 m position error, growing quadratically with time.
+
+  Camera-IMU time synchronization error: the camera and IMU timestamps must be
+  aligned within 1-2 ms for accurate fusion. If the hardware trigger or
+  software timestamp pipeline introduces jitter exceeding 5 ms, the VIO
+  algorithm misaligns visual and inertial measurements. At 5 km/h, a 10 ms
+  timing error produces 1.4 cm position disagreement per frame, accumulating
+  over time.
+
+  Initialization failure: VIO requires a brief initialization period (1-3
+  seconds of motion) to estimate IMU biases and initial scale. If the parking
+  maneuver begins before initialization completes (e.g., immediate reverse
+  after shift to R), the early trajectory estimate may have meter-scale errors.
+
+  Vibration coupling: engine vibration, road surface roughness, and EPS motor
+  vibration introduce high-frequency acceleration signals that can saturate
+  the IMU or alias into the navigation frequency band. Vibration at 10-50 Hz
+  is particularly problematic as it overlaps with vehicle dynamic motion
+  frequencies.
+
+
+=== WHEEL ODOMETRY ===
+
+Architecture: uses wheel speed sensor pulses (from ABS ring gear, typically
+48-96 teeth per revolution) and steering angle to estimate vehicle
+displacement and heading. Simple, reliable, but accumulates drift.
+
+Failure modes:
+
+  Tire slip on wet or icy surfaces: when the tires slip during steering or
+  braking, wheel odometry reports incorrect displacement. On a wet surface,
+  5-15% tire slip is common during steering maneuvers. This translates to
+  5-15% distance error in the direction of travel. On ice, slip can reach
+  50-100%, making wheel odometry effectively useless.
+
+  Tire pressure variation: tire circumference depends on inflation pressure.
+  A 20% pressure decrease (e.g., from 2.5 bar to 2.0 bar) changes effective
+  circumference by approximately 2%. Over a 50 m parking maneuver, this
+  produces 1.0 m cumulative distance error. Seasonal temperature changes
+  cause 10-15% pressure variation.
+
+  Steering angle sensor offset: if the steering angle sensor zero-point is
+  offset (e.g., after wheel alignment without sensor recalibration), the
+  odometry heading estimate diverges from reality. A 2-degree steering offset
+  produces a lateral position error of approximately 1.7 m per 50 m of travel.
+
+  ABS ring gear tooth damage: a chipped or damaged tooth on the ABS ring gear
+  produces a periodic speed measurement error. The error appears as a speed
+  pulse at the wheel rotation frequency, causing oscillating position
+  estimates. The error magnitude depends on the number of damaged teeth
+  relative to total tooth count.
+
+
+=== INFRASTRUCTURE POSITIONING ===
+
+Architecture: some AVP systems augment onboard sensing with parking facility
+infrastructure. Technologies include UWB (ultra-wideband, 10-30 cm accuracy),
+BLE (Bluetooth Low Energy, 1-3 m accuracy), magnetic markers embedded in
+floor, and visual fiducial markers (QR codes or ArUco markers) on walls.
+
+Failure modes:
+
+  UWB multipath in parking structures: UWB signals reflect off metallic
+  surfaces (steel columns, reinforced concrete, car bodies). Reflected signals
+  arrive later than the direct path, causing range measurement errors of 0.3-
+  2.0 m. Multipath is particularly severe in multi-story structures with dense
+  metallic content.
+
+  BLE signal attenuation and interference: BLE beacon signals are attenuated
+  by vehicles, concrete walls, and human bodies. In a parking structure, the
+  received signal strength varies by 10-20 dB as vehicles enter and leave the
+  area, causing position estimates to jump by 1-5 m. Wi-Fi interference in
+  the 2.4 GHz band further degrades BLE positioning accuracy.
+
+  Beacon database mismatch: the vehicle's map of beacon positions must match
+  the actual installed positions. If beacons are moved, replaced, or have
+  failed (battery depletion for BLE beacons, typical 2-5 year lifetime),
+  the position solution uses incorrect reference points. A single failed
+  beacon in a sparse deployment can cause 2-5 m position error.
+
+  Infrastructure-vehicle communication latency: positioning updates from
+  infrastructure arrive at 1-10 Hz via wireless link. Communication latency
+  (10-100 ms for UWB, 100-500 ms for BLE) means the position fix is outdated
+  when received. At 5 km/h, 100 ms latency equals 14 cm position staleness.
+
+  Magnetic marker detection failure: embedded magnetic markers degrade over
+  time as the magnetic material weakens or floor resurfacing buries them
+  deeper. The vehicle's magnetic sensor must pass within 10-30 cm laterally
+  to detect the marker — lane tracking errors can cause the sensor to miss
+  the marker entirely.
+
+
+=== PATH PLANNING ===
+
+Architecture: parking path planning typically uses a two-layer approach:
+global planner (Hybrid A*, RRT*, or lattice-based) computes a collision-free
+path from current position to target parking space, then a local planner
+(TEB — Timed Elastic Band, MPC, or pure pursuit) tracks the global path in
+real time.
+
+Failure modes:
+
+  Hybrid A* timeout: in complex environments (tight spaces, multiple vehicles,
+  narrow corridors), the Hybrid A* planner may not find a solution within its
+  computation budget (typically 200-500 ms). If the planner times out, the
+  vehicle must stop and wait for re-planning or abort the maneuver. Repeated
+  timeouts occur when the parking space is near-feasibility limits.
+
+  Occupancy grid stale data: the path planner uses an occupancy grid (typically
+  10-20 cm cell resolution) as its environment representation. Grid cells
+  retain their occupancy state until updated by new sensor data. If a cell is
+  outside current sensor coverage (e.g., behind the vehicle during forward
+  motion), its state may be 1-5 seconds old. A pedestrian entering a stale
+  region is not represented in the grid, and the planner may route through
+  that space.
+
+  TEB local planner local minimum: the Timed Elastic Band optimizer can
+  become trapped in local minima when the environment has narrow passages or
+  the initial trajectory is on the wrong side of an obstacle. The planner
+  oscillates between two infeasible solutions, producing jerky or stalled
+  vehicle motion. Recovery requires re-initialization from the global planner.
+
+  Speed profile violation: the path planner computes a speed profile that
+  respects vehicle dynamics (maximum acceleration, deceleration, steering
+  rate). If the actual vehicle response differs from the planner's model
+  (e.g., due to EPS thermal derating or brake pressure reduction), the
+  vehicle cannot follow the planned speed profile. This creates tracking
+  error that can lead to obstacle clearance violations.
+
+  Infeasible path due to vehicle geometry error: the planner uses a vehicle
+  footprint model (length, width, wheelbase, overhang, minimum turning
+  radius). If these parameters are incorrect (e.g., roof rack or tow hitch
+  extending the vehicle footprint, or tire size change affecting turning
+  radius), the planned path may be infeasible — the vehicle contacts obstacles
+  at points where the planner showed adequate clearance.
+
+  Parking space dimension estimation error: the planner estimates available
+  parking space dimensions from sensor data. If the space dimensions are
+  overestimated (e.g., because adjacent vehicle positions are measured
+  inaccurately), the planner generates a path that requires more space than
+  actually available. The vehicle follows the path until clearance violation
+  triggers emergency stop, potentially leaving the vehicle in an unrecoverable
+  position.
+
+
+=== INTEGRATION FAILURES ===
+
+Clock synchronization drift between ECUs:
+  The parking system involves multiple ECUs (perception, planning, actuation)
+  running on separate processors with independent clocks. Clock drift between
+  ECUs, typically 1-50 ppm, accumulates over operating time. After 30 minutes
+  of operation, clocks may differ by 1-90 ms. This desynchronization affects
+  timestamp alignment between perception data and planning decisions — the
+  planner may act on perception data that is older than assumed, creating
+  a gap between the perceived and actual environment state.
+
+Occupancy grid corruption:
+  The occupancy grid is shared between perception (which updates it) and
+  planning (which reads it). If the grid update and read operations are not
+  properly synchronized (race condition), the planner may read a partially
+  updated grid — some cells reflect the current scan while others reflect
+  the previous scan. This creates an inconsistent environment representation
+  with phantom obstacles or phantom free space.
+
+State machine transition error:
+  The parking system operates as a state machine (idle, searching, approaching,
+  maneuvering, completing, aborting). Transitions between states trigger
+  changes in control mode (speed limits, sensor configuration, abort
+  conditions). If the state machine transitions incorrectly (e.g., from
+  "maneuvering" to "completing" before the vehicle has actually reached the
+  target pose), the system may relax speed limits or sensor monitoring
+  prematurely.
+
+Fallback mode misactivation:
+  Safety-critical systems define fallback modes (minimum risk conditions) for
+  fault scenarios. If the fault detection logic is overly sensitive (e.g.,
+  a single missed CAN frame triggers fallback) or incorrectly configured
+  (e.g., a transient sensor glitch is classified as permanent failure), the
+  system enters fallback prematurely. In fallback, the vehicle typically stops
+  immediately — which itself can be hazardous if it occurs on a ramp, in a
+  traffic lane, or mid-maneuver blocking other vehicles.
+
+Perception-to-planning handoff latency:
+  The total latency from sensor acquisition to planning action includes:
+  sensor capture (5-30 ms), preprocessing (5-20 ms), detection/classification
+  (20-100 ms for DNN inference), fusion (5-20 ms), grid update (5-10 ms),
+  planning computation (50-200 ms), and actuation command (5-20 ms). Total
+  pipeline latency ranges from 100-400 ms. At 10 km/h, the vehicle travels
+  28-111 cm during this latency. If a pedestrian enters the vehicle's path,
+  the vehicle has already moved 0.3-1.1 m before the first corrective action.

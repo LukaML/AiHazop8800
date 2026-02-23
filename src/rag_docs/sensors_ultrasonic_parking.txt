@@ -1,0 +1,82 @@
+--- PAGE 1 ---
+
+Bitte decken Sie die schraffierte Fläche mit einem Bild ab.
+Please cover the shaded area with a picture.
+(24,4 x 13,2 cm)
+Mobility is the Heartbeat of Life
+Ultrasonic Parking Sensor
+www.continental-automotive.com
+CES 2021
+
+
+--- PAGE 2 ---
+
+Internal
+CES 2021
+If interested in this business unit or technology, contact us for more information - link
+Ultrasonic Parking Sensor
+Passive Safety and Sensorics
+› Continental Ultrasonic Sensor (CUS) is completing 
+Continental’s Automated Driving/Parking (AD/P) product 
+portfolio. 
+› CUS for Parking, is a sensor dedicated to be used in low 
+speed maneuvering situations (Speed < 10 km/hour).
+It measures the time of flight to an object (Echo-Localization 
+principle).
+› The sensor sends an ultrasound echo (wave) and receives a 
+signal (wave reflection by an object) after a certain period of 
+time. The time of flight is converted to a measured 
+distance. Software in the ECU processes these measurements 
+and determines the appropriate actions to take.
+
+
+--- PAGE 3 ---
+
+Internal
+CES 2021
+Ultrasonic Parking Sensor
+Passive Safety and Sensorics
+Benefits & Features
+› Easy and precise parking
+› ​Stress free vehicle maneuverability
+› 360-degree car protection
+› ​Environment visualization and monitoring​
+› Compliance with major OEM requirements​
+› Coding among sensors and Multi measurement
+› ​Self diagnostics
+› ​Signal filtering 
+› ASIL-B according to ISO 26262
+› ​Paintable​
+Technical Information
+› Supply voltage range: +9V …+16V​
+› Operating temp range: -40 … +85°C​
+› IP classification: IP6K9K​
+› Diameter: 15.5 mm
+› Frequency: 52 KHz
+› Car connectivity P2P or bus
+› Car communication DSI3 interface
+› 3 pins per sensor group 
+› Detection ranges target: <10 cm – up to 600 cm
+› Opening angles: 120° x 60°
+
+
+--- PAGE 4 ---
+
+Internal
+CES 2021
+CUS – Advantages
+› Dynamic range mode
+› Enabling the combination of Parking Distance Control mode (PDC) and 
+Parking Slot Detection mode (PLV) in one design type. This leads to the 
+reduction of design variance in the vehicle architecture. 
+› Higher signal robustness against disturbance
+› Echo source identification is reliable and robust (identifying own 
+transmitted signals)
+› Continuous signal transmission (sensors fire parallel to another) supporting 
+higher data rates vs. sequential signal transmission with competing sensor 
+generation 
+› Improvements compared to competing sensors
+› Supports automated driving/safety levels with higher maximum operation 
+speed for emergency braking 
+Ultrasonic Parking Sensor
+Passive Safety and Sensorics

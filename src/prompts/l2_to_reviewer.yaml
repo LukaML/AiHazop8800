@@ -1,0 +1,71 @@
+title: "L2 reviewer"
+inputs:
+  - validator_report
+  - rows_l2_json
+instructions: |
+  Review L2: function → guideword → deviation → cause. No cross-row uniqueness checks.
+
+  Verify that each cause's failure mechanism is physically compatible with the
+  named component. Flag causes where:
+    - Electrical faults (open-circuit, short) are assigned to hydraulic/mechanical parts
+    - Mechanical faults (wear, leak, seizure) are assigned to software modules
+    - The failure mode cannot physically occur in the named component type
+
+  Verify that the cause includes a causal explanation linking the failure
+  mechanism to the deviation. Flag causes that name a component and fault but
+  do not explain how the fault produces the specific deviation.
+  Verify cross-domain plausibility: hydraulic leaks cannot produce logical
+  inversion; mechanical seizure cannot generate signal corruption without
+  explicit sensor path; electrical faults cannot produce hydraulic overpressure
+  without explicit actuator path.
+  Flag rows where the same or near-identical failure mechanism is repeated across multiple rows.
+  Causes for the same function must cite different components AND different failure mechanisms.
+  Check that the batch uses diverse fault categories (hardware, software, communication, electrical,
+  perception/sensor, timing, calibration) rather than concentrating on a single domain.
+  Flag if more than 40% of causes for a function fall within a single failure domain.
+  Check that causes include SYSTEM INTEGRATION failure types where applicable,
+  not only single-component failures. For system-level functions, at least one
+  cause should reference cross-component interactions such as: sensor fusion
+  inconsistency, CAN bus arbitration delay, redundant signal disagreement,
+  fallback mode misactivation, or state-machine transition error.
+
+  Verify the cause clearly identifies its failure domain (hardware/mechanical,
+  ECU/software, communication/bus, electrical/wiring). Flag causes where the
+  domain is ambiguous or the failure mode doesn't match the component type.
+
+  Verify braking physics consistency:
+    - Braking activation cannot cause vehicle acceleration.
+    - Increased braking force cannot cause unintended acceleration.
+    - Hydraulic leaks cannot cause signal inversion unless a sensor-based
+      feedback path is explicitly described.
+  Flag any cause-to-deviation chain that violates these physics rules.
+
+  If additional context (notes or RAG material) is appended below, use it to
+  verify that causes reference correct components and failure modes:
+  - Flag causes that name components not present in the described system.
+  - Verify failure modes are physically plausible for the named components.
+  - Check that fault domains match the system architecture.
+  Do not copy context verbatim.
+
+  Same output policy as L1. On RETURN, suggestions_by_row is REQUIRED with items like:
+  {"row_id":"L2-5","fields":["deviation","cause"],"problem":"...","suggestion":"..."}
+
+payload_template: |
+  {"report": {{validator_report}}, "rows": {{rows_l2_json}}}
+
+output_schema: |
+  {"decision":"OK|RETURN|ESCALATE","scope":"L2","issues":["..."],"suggestions":["..."],
+   "suggestions_by_row":[{"row_id":"L2-5","fields":["cause"],"problem":"...","suggestion":"..."}]}
+constraints: |
+  - When decision="RETURN": suggestions_by_row length MUST be >=1.
+  - Keep row_id/function/guideword unchanged.
+  - Write the 'cause' as one or more complete English sentences (start with a capital letter, end with a period).
+  - Do not use the ':' character anywhere in the cause text.
+  - If you need to separate component and failure mode, use prose (e.g., "The <component> experienced <failure mode> …") not a colon.
+  - NEVER use dash-separated format like "Element - description".
+  - The cause must describe ONLY the root failure mechanism at the component itself. Do not include downstream system effects (those belong in L3).
+  - The failure mechanism must be physically compatible with the component type
+    (no electrical faults on hydraulic parts, no mechanical wear on software).
+  - The cause must explain HOW the failure mechanism produces the deviation (not just name a component and a fault).
+  - Ban vague words unless made specific: malfunction, failure, issue, error.
+  - Reject braking physics contradictions: braking activation cannot cause acceleration; increased braking force cannot cause unintended acceleration.

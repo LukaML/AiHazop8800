@@ -1,0 +1,158 @@
+title: HUMAN_PATCH_L3_TARGETED
+inputs:
+  - rows_l3_json
+  - row_hints_json
+instructions: |
+  You receive CURRENT L3 rows and human-provided feedback for specific rows.
+
+  ## HANDLING EMPTY OR MISSING SUGGESTIONS
+
+  If the suggestion field is empty, blank, or not provided for a targeted row:
+  - Generate a NEW, plausible technical effect value for that row
+  - Base it on the existing row context (function, guideword, deviation, cause)
+  - Write fresh domain-specific HAZOP content as if generating from scratch
+  - Ensure the new effect is DIFFERENT from the original (do not return unchanged)
+  - Set potentially_dangerous appropriately based on the new effect's severity
+
+  The anti-copy rules below only apply when a non-empty suggestion IS provided.
+
+  ## YOUR ROLE: TRANSLATOR, NOT TRANSCRIBER
+
+  When the user HAS provided a suggestion, your job is to INTERPRET their intent
+  and TRANSFORM it into proper technical HAZOP content.
+
+  Think of it like this:
+  - User says: "make it more dangerous" (their INTENT)
+  - You write: "Uncontrolled pressure buildup exceeds relief valve capacity, risking catastrophic vessel rupture and personnel injury in the immediate vicinity." (TECHNICAL CONTENT)
+
+  The user is NOT a HAZOP expert - they are giving you DIRECTION, not dictation.
+  You must translate their everyday language into domain-specific technical text.
+
+  ## CRITICAL ANTI-COPY RULES
+
+  *** NEVER copy the user's suggestion text into ANY output field ***
+
+  WRONG OUTPUTS (will be rejected):
+  - "make it more dangerous" (copied verbatim)
+  - "The effect involves making it more dangerous" (wrapped copy)
+  - "More dangerous as suggested" (paraphrased copy)
+  - "Per user request: more dangerous scenario" (attributed copy)
+
+  CORRECT OUTPUTS (what you should write):
+  - "The failure propagates to the main controller, triggering emergency shutdown with potential for incomplete isolation of hazardous materials."
+  - "Reduced cooling capacity leads to thermal runaway, potentially causing reactor vessel breach."
+  - "Loss of containment releases flammable vapors into the process area, creating explosion hazard."
+
+  ## SELF-VALIDATION CHECKLIST (apply before returning)
+
+  For each modified row, verify:
+  1. Does the output text match or contain the suggestion text? If YES → rewrite
+  2. Is the output written in technical HAZOP language? If NO → rewrite
+  3. Does the effect describe system-level consequences? If NO → rewrite
+  4. Is potentially_dangerous consistent with the effect severity? If NO → adjust
+  5. Would a HAZOP engineer recognize this as a proper effect description? If NO → rewrite
+
+  ## YOUR TASK
+
+  - Return the FULL list of L3 rows, in the SAME order and SAME length.
+  - For any row whose "row_id" appears in row_hints_json:
+      * Only edit the fields listed in that hint's "fields" (subset of: ["deviation","cause","effect","potentially_dangerous"])
+        * CRITICAL (MUST): If "potentially_dangerous" is listed in fields for a targeted row_id,
+        you MUST change potentially_dangerous to resolve the reviewer issue.
+        You are NOT allowed to keep the previous potentially_dangerous value when it is flagged.
+        Output must be a real JSON boolean: true or false (no quotes).
+        Parking-context safety relevance guide (test: unintended vehicle motion or physical contact?):
+          TRUE: unintended acceleration, uncontrolled rollback, lateral drift into object,
+          failure to stop before obstacle, creep toward pedestrian, contact with adjacent vehicle.
+          FALSE: vehicle stationary, safe-state activation halts motion, nuisance braking
+          (unexpected stop, no contact), false-positive detection triggers unnecessary stop,
+          degraded parking precision, manual-mode fallback, comfort degraded, cosmetic fault.
+      * INTERPRET the user's suggestion and write NEW technical effect text.
+      * Apply the hint to make the row logically consistent:
+          function → guideword → deviation → cause → effect must make sense.
+      * Keep "row_id", "function", and "guideword" UNCHANGED.
+  - For any row NOT mentioned in row_hints_json: return it UNCHANGED (verbatim).
+  - Do NOT enforce uniqueness across rows; different deviations may share the same cause/effect.
+
+  ## MORE EXAMPLES OF CORRECT TRANSFORMATION
+
+  User suggestion: "mention system shutdown"
+  WRONG: "mention system shutdown"
+  RIGHT: "The failure triggers emergency shutdown sequence, halting production and requiring manual restart procedure taking approximately 4 hours."
+
+  User suggestion: "add downstream impact"
+  WRONG: "add downstream impact"
+  RIGHT: "The reduced flow rate causes downstream heat exchanger to operate outside design envelope, potentially damaging the tube bundle and requiring unplanned maintenance."
+
+  User suggestion: "environmental concern"
+  WRONG: "environmental concern"
+  RIGHT: "Seal failure releases process fluid to atmosphere, exceeding permitted emission limits and requiring environmental incident reporting."
+
+  User suggestion: "safety issue"
+  WRONG: "safety issue"
+  RIGHT: "High-pressure release creates jet fire hazard in the immediate area, requiring evacuation of personnel within 50-meter radius."
+
+  ## STYLE RULES
+
+  - Write domain-specific, technical text only (short, system-level for effect).
+  - If a hint is vague, infer a plausible concrete value consistent with the row.
+  - Ensure potentially_dangerous reflects actual severity of the described effect.
+
+  If additional context (notes or RAG material) is appended below, use it to
+  trace more accurate system-level effects:
+  - Prefer subsystem names and interaction paths from the context.
+  - Use physical parameters and safety thresholds from the context.
+  - Match domain-specific effect terminology from the context.
+  Do not copy context verbatim.
+
+  EFFECT DIVERSIFICATION & CONTEXT RULES (for targeted rows):
+  - When patching an effect, ensure the replacement uses a different vehicle
+    behavior type than other rows for the same function. Do not duplicate the
+    motion pattern of a sibling row.
+  - Unless system notes specify highway context, prefer low-speed parking
+    outcomes (curb strike, parked vehicle contact, pedestrian contact, rollback).
+  - Avoid reusing the same outcome phrase as other rows in the function.
+
+  STRICT OUTPUT INSTRUCTION:
+  Output a top-level JSON ARRAY of row OBJECTS (same count as input subset).
+  Do not wrap in an outer object. Do not output prose. Use standard JSON.
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, function, guideword, deviation, cause, effect, potentially_dangerous]
+    properties:
+      row_id: { type: string }
+      function: { type: string }
+      guideword: { type: string }
+      deviation: { type: string }
+      cause: { type: string }
+      effect: { type: string }
+      potentially_dangerous: { type: boolean }
+constraints: |
+  - Output JSON ONLY (an array of rows).
+  - Return the FULL list in the SAME order/length as rows_l3_json.
+  - Non-targeted rows must be byte-for-byte unchanged.
+  - Edit ONLY the fields listed for the targeted row_id(s).
+  - NEVER copy user suggestion text into output fields.
+  - Forbidden meta phrases inside fields: "ensure", "make sure", "provide", "be specific",
+    "value error", "field must not be empty", "placeholder", "nominal", "normal",
+    "no change", "unchanged", "as suggested", "per user request", "user wants".
+  - Effect must be ≤24 words.
+  - If "potentially_dangerous" is in fields for a targeted row, you MUST update it (do not keep old value).
+  - Ban vague words unless made specific: malfunction, failure, issue, error.
+  - Ban generic safety phrases in effect: "risk of collision", "risking collision",
+    "unpredictable behavior", "potential hazards", "potential hazard", "dangerous situation",
+    "safety risk", "risking loss of control", "loss of control", "may cause an accident", "unintended consequences",
+    "risking obstacle contact".
+  - Effect must be diversified: do not reuse the same vehicle motion pattern as other rows for the same function.
+  - For parking/low-speed functions, prefer parking-appropriate outcomes over highway-style outcomes.
+  - Effect must NOT end with a generic risk statement.
+  - Effect must not contradict cause physics: braking activation cannot cause acceleration; increased braking force cannot produce unintended acceleration.
+  - Effect should address subsystem impact, vehicle dynamics change, and safety consequence. Must NOT start with "Due to..." or repeat deviation text. Trace through the cause's failure domain.
+  - potentially_dangerous: true only if the effect plausibly leads to unintended vehicle motion or physical contact; false when the vehicle remains stationary, enters a safe state, or only convenience/precision is affected. Classification must follow propagation logic.
+payload_template: |
+  {
+    "rows_l3": {{rows_l3_json}},
+    "row_hints": {{row_hints_json}}
+  }

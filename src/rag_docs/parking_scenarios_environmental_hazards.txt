@@ -1,0 +1,200 @@
+PARKING SCENARIOS & ENVIRONMENTAL HAZARDS (AVP/APA CONTEXT)
+
+Purpose:
+- Document the operational design domain (ODD) for automated valet parking
+  and parking assist features, including facility types, environmental
+  conditions, obstacle types, and hazardous scenarios.
+- Provide scenario-specific context for realistic HAZOP effect generation.
+
+
+=== PARKING FACILITY TYPES ===
+
+Surface lot (outdoor):
+  Open-air parking with painted markings on asphalt or concrete. Full GPS
+  availability. Subject to all weather conditions. Typical slot dimensions
+  2.4 m x 5.0 m (perpendicular) or 2.0 m x 6.0 m (parallel). Marking
+  degradation from UV exposure and tire wear reduces detection confidence.
+  Surface irregularities (potholes, speed bumps 50-75 mm height, expansion
+  joints) create suspension disturbances that affect sensor stability.
+
+Multi-story parking structure:
+  Concrete or steel-frame enclosed structure with multiple levels connected
+  by ramps. Clearance height typically 2.1-2.4 m (limiting roof-mounted
+  sensor placement). Ramp gradient 8-16% with transition angles at top and
+  bottom. Sharp turns (180-degree switchbacks with 5-7 m inner radius) at
+  ramp transitions. Structural pillars at 5-8 m intervals create occlusion
+  zones. Metallic reinforcement and steel beams cause radar multipath.
+  Fluorescent or LED lighting with variable intensity (100-500 lux) and
+  potential flicker at 100-120 Hz affecting camera exposure.
+
+Underground parking:
+  Below-grade structure with no GPS reception. Relies entirely on dead
+  reckoning, visual SLAM, or infrastructure positioning. Typically lower
+  ceiling height (2.0-2.2 m). Poor natural lighting requires full reliance
+  on artificial lighting. Fluorescent lamp flicker can cause camera image
+  banding. Damp conditions promote ultrasonic membrane condensation. Cell
+  phone signal attenuation affects remote parking control via smartphone.
+  Entry/exit ramp transitions from daylight to darkness create severe
+  camera exposure adaptation challenges (2-5 second adaptation time).
+
+Residential / private:
+  Private driveway or garage with non-standard layouts. No painted markings.
+  Narrow driveways (2.5-3.5 m width). Garage openings as narrow as 2.4 m
+  with clearance as low as 2.0 m. Uneven surfaces, drainage grates, garden
+  hoses, and toys as unexpected obstacles. No infrastructure positioning
+  support.
+
+
+=== ENVIRONMENTAL CONDITIONS ===
+
+Rain:
+  Light rain (<5 mm/hr): camera lens water droplets cause localized image
+  blur. Ultrasonic membrane water film attenuates echo amplitude by 3-6 dB.
+  Wet markings reduce detection contrast by 40-60%.
+  Heavy rain (>25 mm/hr): LiDAR range reduced by 60%. Camera images severely
+  degraded. Ultrasonic detection range reduced by 30-50%. Standing water on
+  surface creates specular reflections confusing camera-based detection.
+  Braking distance on wet surface increases by 50-100% at parking speeds.
+
+Snow and ice:
+  Snow accumulation on sensors: 2-5 mm of snow on ultrasonic membrane
+  blocks transmission entirely. Snow on camera lens creates opaque patches.
+  LiDAR aperture blocked by snow/ice buildup.
+  Icy surface: braking distance increases by 3-10x compared to dry surface.
+  At 10 km/h on ice, stopping distance extends from 1 m to 3-10 m. Tire
+  slip during steering maneuvers causes trajectory deviation. Wheel odometry
+  becomes unreliable due to wheel spin/slip.
+  Snow-covered markings: parking line detection impossible. System must rely
+  entirely on obstacle-based space detection or infrastructure guidance.
+
+High temperature (>40C ambient):
+  EPS motor thermal derating begins at 100C winding temperature, reached
+  more quickly in hot ambient. ECU operating temperature approaches limits
+  (typically 85-105C junction). Camera CMOS sensor thermal noise increases,
+  reducing image quality. Tire pressure increases (approximately 1 psi per
+  5.5C), affecting wheel circumference and odometry accuracy.
+
+Low temperature (<-20C ambient):
+  Brake fluid viscosity increases significantly, slowing pressure build
+  time by 20-50%. Power steering fluid (in hydraulic systems) thickens,
+  increasing assist lag. Battery capacity reduction (20-40% at -20C) limits
+  available power for electric drive creep and EPS. Ultrasonic sensor
+  membrane stiffens, shifting resonant frequency and reducing sensitivity.
+  Rubber seals and bushings harden, increasing friction and reducing
+  responsiveness.
+
+Sun glare:
+  Direct sunlight entering camera lens causes flare, bloom, and local
+  saturation. Worst case occurs at low sun angles (early morning, late
+  afternoon) when light enters nearly horizontally — common in surface lots.
+  Transition between sun and shadow (e.g., entering parking structure) causes
+  2-5 second camera adaptation delay. LiDAR 905 nm sensors experience
+  background saturation when facing directly into sun.
+
+Darkness:
+  Camera detection relies on artificial lighting. In poorly lit areas
+  (<50 lux), camera performance degrades significantly. Headlamp illumination
+  creates harsh shadows and specular reflections. Pedestrians in dark
+  clothing are particularly difficult to detect. Ultrasonic and radar
+  performance is unaffected by darkness.
+
+
+=== OBSTACLE TYPES ===
+
+Pedestrians:
+  Adults (typical cross-section 0.5 m x 0.3 m, height 1.5-1.9 m): detected
+  reliably by camera and LiDAR above 5 m range. Ultrasonic detection reliable
+  below 3 m. Walking speed 1.2-1.5 m/s in parking areas.
+  Children (cross-section 0.3 m x 0.2 m, height 0.8-1.3 m): significantly
+  smaller radar and LiDAR cross-section. Below ultrasonic sensor beam height
+  in some configurations. Camera detection relies on shape recognition, which
+  may fail for partially occluded children (e.g., between parked vehicles).
+  Wheelchair users, stroller pushers: lower detection profile, slower movement
+  speed, less ability to evade.
+
+Vehicles:
+  Parked vehicles: stationary, large radar cross-section, reliable detection.
+  Primary hazard is door opening into the path of the automated vehicle.
+  Door opening speed 0.5-1.0 m/s, extending 0.8-1.2 m from vehicle body.
+  Reversing vehicles: another vehicle backing out of an adjacent space while
+  the automated vehicle maneuvers. Relative closing speed up to 10 km/h.
+  Motorcycles and bicycles: smaller cross-section, potentially below camera/
+  LiDAR mounting height. Kickstand-parked motorcycles may topple if contacted.
+
+Fixed obstacles:
+  Bollards: steel or concrete posts, 0.1-0.3 m diameter, 0.5-1.0 m height.
+  Small radar cross-section. May be below LiDAR scan plane.
+  Curbs: 50-150 mm height change at parking space perimeter. Detectable by
+  ultrasonic and LiDAR but may be below camera detection threshold if not
+  painted. Curb strike at 5 km/h can damage wheels, tires, and suspension.
+  Pillars: structural columns in parking structures, typically 0.3-0.6 m
+  diameter. Create radar multipath and camera occlusion zones.
+  Wheel stops: concrete blocks 100-150 mm height, 1.5-2.0 m length. May be
+  detected as curb or missed entirely if below sensor beam.
+
+Transient obstacles:
+  Shopping carts: lightweight, irregular shape, semi-transparent to radar.
+  May roll if contacted at low speed. Height 1.0 m, width 0.6 m.
+  Construction barriers: temporary, non-standard geometry. Orange cones
+  (0.3-1.0 m height), water-filled jersey barriers, temporary fencing.
+  Animals: pets (dogs on leash or loose), birds, small wildlife. Irregular
+  motion patterns, unpredictable trajectory.
+
+
+=== MANEUVER PARAMETERS ===
+
+Speed envelope: 0-15 km/h for all parking maneuvers. Typical target speed
+3-7 km/h during space approach and maneuver execution. Emergency braking
+target: full stop within 0.5-1.5 m from 10 km/h.
+
+Clearance requirements: lateral (side) clearance to obstacles typically
+30-50 cm. Front and rear clearance to obstacles typically 50-80 cm. These
+margins account for sensor accuracy, control precision, and path tracking
+error. Clearance below 20 cm triggers emergency stop in most systems.
+
+Completion time: perpendicular parking 30-60 seconds. Parallel parking
+40-90 seconds. Multi-point maneuver adds 10-20 seconds per correction.
+Systems typically abort if maneuver exceeds maximum time (120-180 seconds).
+
+Steering dynamics: full lock-to-lock steering typically requires 2.5-3.5
+turns. At parking speed, lock-to-lock time is 2-4 seconds. EPS motor
+reaches thermal limit after 3-5 consecutive full-lock maneuvers.
+
+
+=== HAZARDOUS SCENARIOS ===
+
+Child darting between parked vehicles: a child emerges from between two
+parked vehicles into the path of the automated vehicle. Detection time is
+severely limited — the child may be visible for only 0.3-0.5 seconds before
+reaching the vehicle's path. At 5 km/h, the vehicle covers 0.7-1.0 m in
+the 0.5 seconds between detection and brake actuation.
+
+Ramp rollback: the vehicle stops on a parking structure ramp (8-16%
+gradient). If the brake releases before sufficient drive torque is
+established (EPB auto-hold release logic), the vehicle rolls backward.
+On a 12% gradient, a 2000 kg vehicle accelerates at approximately 1.2 m/s^2,
+reaching 4 km/h within 1 second of brake release.
+
+Pillar contact during tight turn: the vehicle executes a turn in a multi-
+story structure with pillars at 5-8 m spacing. The rear overhang (0.8-1.2 m
+behind rear axle) sweeps outward during the turn. If the path planner
+underestimates rear overhang sweep, the rear corner contacts a pillar.
+Contact at 3-5 km/h causes bumper and quarter-panel damage.
+
+Adjacent vehicle door opening: while the automated vehicle passes a parked
+vehicle, an occupant opens their door into the driving corridor. The door
+extends 0.8-1.2 m from the parked vehicle's body. If lateral clearance is
+less than the door swing radius, contact occurs. Detection of the door
+opening requires camera or LiDAR with <200 ms response time.
+
+Wet ramp loss of traction: on a wet or icy parking structure ramp, the
+traction tires lose grip during acceleration or braking. ABS and traction
+control may not be calibrated for the ultra-low speeds used in parking
+maneuvers. The vehicle slides sideways on a curved ramp, contacting the
+guardrail or adjacent vehicle.
+
+Pedestrian in blind zone at maneuver start: a pedestrian stands in the
+ultrasonic dead zone (15-30 cm from bumper) when the automated vehicle
+begins a parking maneuver. The ultrasonic sensors cannot detect obstacles
+within their minimum range. The vehicle begins moving toward the pedestrian
+without detection.

@@ -1,0 +1,127 @@
+title: HUMAN_PATCH_L1_TARGETED
+inputs:
+  - rows_l1_json
+  - row_hints_json
+instructions: |
+  You receive CURRENT L1 rows and human-provided feedback for specific rows.
+
+  ## HANDLING EMPTY OR MISSING SUGGESTIONS
+
+  If the suggestion field is empty, blank, or not provided for a targeted row:
+  - Generate a NEW, plausible technical deviation value for that row
+  - Base it on the existing row context (function, guideword)
+  - Write fresh domain-specific HAZOP content as if generating from scratch
+  - Ensure the new deviation is DIFFERENT from the original (do not return unchanged)
+
+  The anti-copy rules below only apply when a non-empty suggestion IS provided.
+
+  ## YOUR ROLE: TRANSLATOR, NOT TRANSCRIBER
+
+  When the user HAS provided a suggestion, your job is to INTERPRET their intent
+  and TRANSFORM it into proper technical HAZOP content.
+
+  Think of it like this:
+  - User says: "make it about valve failure" (their INTENT)
+  - You write: "The inlet isolation valve fails to open, preventing flow initiation." (TECHNICAL CONTENT)
+
+  The user is NOT a HAZOP expert - they are giving you DIRECTION, not dictation.
+  You must translate their everyday language into domain-specific technical text.
+
+  ## CRITICAL ANTI-COPY RULES
+
+  *** NEVER copy the user's suggestion text into ANY output field ***
+
+  WRONG OUTPUTS (will be rejected):
+  - "make it about valve failure" (copied verbatim)
+  - "The deviation involves making it about valve failure" (wrapped copy)
+  - "Valve failure as suggested" (paraphrased copy)
+  - "Per user request: valve failure" (attributed copy)
+
+  CORRECT OUTPUTS (what you should write):
+  - "The inlet isolation valve fails to close completely, allowing bypass flow."
+  - "Control valve stem binding prevents accurate position control."
+  - "Ball valve internal erosion causes increased seat leakage."
+
+  ## SELF-VALIDATION CHECKLIST (apply before returning)
+
+  For each modified row, verify:
+  1. Does the output text match or contain the suggestion text? If YES → rewrite
+  2. Is the output written in technical HAZOP language? If NO → rewrite
+  3. Does it describe a specific deviation (not cause or mechanism)? If NO → rewrite
+  4. Would a HAZOP engineer recognize this as proper deviation text? If NO → rewrite
+
+  ## YOUR TASK
+
+  - Return the FULL list of L1 rows, in the SAME order and SAME length.
+  - For any row whose "row_id" appears in row_hints_json:
+      * Edit ONLY the fields listed in that hint's "fields" (subset of: ["deviation","applicability_score","applicability_note"])
+      * Keep "row_id", "function", and "guideword" UNCHANGED.
+      * INTERPRET the user's suggestion and write NEW technical deviation text.
+      * Ensure function → guideword → deviation is coherent and technical.
+  - For any row NOT mentioned in row_hints_json: return it UNCHANGED (verbatim).
+
+  ## MORE EXAMPLES OF CORRECT TRANSFORMATION
+
+  User suggestion: "something with temperature"
+  WRONG: "something with temperature"
+  RIGHT: "Process fluid temperature exceeds design limits by more than 15°C."
+
+  User suggestion: "pressure issue"
+  WRONG: "pressure issue"
+  RIGHT: "Discharge pressure drops below minimum required for downstream injection."
+
+  User suggestion: "mention the pump"
+  WRONG: "mention the pump"
+  RIGHT: "Centrifugal pump fails to develop rated head pressure."
+
+  User suggestion: "make it more specific"
+  WRONG: "make it more specific"
+  RIGHT: "Flow rate through the 4-inch main header drops to less than 50% of design capacity."
+
+  ## STYLE RULES
+
+  - Write domain-specific, technical text only (concise, component/signal-level).
+  - The 'deviation' field describes WHAT deviates at system/parameter level (flow, pressure, torque, signal, timing), not WHY (failure mechanisms/causes belong in L2). Do not describe failure mechanisms here.
+  - If the hint is vague, infer a plausible concrete value consistent with the row.
+  - Do NOT enforce cross-row uniqueness; similar phrases across rows are allowed.
+
+  If additional context (notes or RAG material) is appended below, use it to
+  ground your corrections in the described domain:
+  - Prefer component names and signal names from the context.
+  - Use parameter ranges and operating conditions from the context.
+  - Match domain-specific terminology from the context.
+  Do not copy context verbatim.
+
+  STRICT OUTPUT INSTRUCTION:
+  Output a top-level JSON ARRAY of row OBJECTS (same count as input subset).
+  Do not wrap in an outer object. Do not output prose. Use standard JSON.
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, function, guideword, deviation]
+    properties:
+      row_id: { type: string }
+      function: { type: string }
+      guideword: { type: string }
+      deviation: { type: string }
+constraints: |
+  - Output JSON ONLY (an array of rows).
+  - Return the FULL list in the SAME order/length as rows_l1_json.
+  - Non-targeted rows must be byte-for-byte unchanged.
+  - Edit ONLY the fields listed for the targeted row_id(s).
+  - NEVER copy user suggestion text into output fields.
+  - Forbidden meta phrases inside fields: "ensure", "make sure", "provide", "be specific",
+    "value error", "field must not be empty", "placeholder", "nominal", "normal",
+    "no change", "unchanged", "as suggested", "per user request", "user wants".
+  - Deviation should be 8–16 words; concise and technical.
+  - Ban vague words unless made specific: malfunction, failure, issue, error.
+  - Guideword semantics must be reflected in deviation: no=complete absence, more=quantitative excess, less=quantitative deficiency, reverse=logical/physical inversion, early=earlier than intended, late=later than intended, before=out-of-sequence before prerequisite, after=out-of-sequence after needed, as well as=unintended additional behavior, part of=incomplete execution, other than=unintended different behavior.
+  - Deviation must reference a concrete physical or logical parameter change (pressure, torque, speed, flow rate, signal timing, actuation state).
+  - Ban in deviation: "incorrect operation", "abnormal behavior", "improper functioning", "unexpected response".
+  - For braking-related "reverse": deviation must describe control-logic or signal-polarity inversion, not physically impossible direction reversal.
+payload_template: |
+  {
+    "rows_l1": {{rows_l1_json}},
+    "row_hints": {{row_hints_json}}
+  }

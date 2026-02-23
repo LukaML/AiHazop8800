@@ -1,0 +1,110 @@
+title: REVIEWER_PATCH_L3_TARGETED
+inputs:
+  - rows_l3_json
+  - row_hints_json
+instructions: |
+  You receive the CURRENT L3 rows and targeted row-level hints from a reviewer.
+
+  Your job:
+  - Return the FULL list of L3 rows, in the SAME order and SAME length.
+  - For any row whose "row_id" appears in row_hints_json:
+      * Only edit the fields listed in that hint's "fields" (subset of: ["deviation","cause","effect","potentially_dangerous"])
+        * CRITICAL (MUST): If "potentially_dangerous" is listed in fields for a targeted row_id,
+        you MUST change potentially_dangerous to resolve the reviewer issue.
+        You are NOT allowed to keep the previous potentially_dangerous value when it is flagged as incorrect.
+        Output must be a real JSON boolean: true or false (no quotes).
+        Parking-context safety relevance guide (test: unintended vehicle motion or physical contact?):
+          TRUE: unintended acceleration, uncontrolled rollback, lateral drift into object,
+          failure to stop before obstacle, creep toward pedestrian, contact with adjacent vehicle.
+          FALSE: vehicle stationary, safe-state activation halts motion, nuisance braking
+          (unexpected stop, no contact), false-positive detection triggers unnecessary stop,
+          degraded parking precision, manual-mode fallback, comfort degraded, cosmetic fault.
+      * Apply the hint to make the row logically consistent:
+          function → guideword → deviation → cause → effect must make sense.
+      * Keep "row_id", "function", and "guideword" UNCHANGED.
+  - For any row NOT mentioned in row_hints_json: return it UNCHANGED (verbatim).
+  - Do NOT enforce uniqueness across rows; different deviations may share the same cause/effect.
+
+  Style & content rules:
+  - CRITICAL: The "suggestion" field contains USER GUIDANCE about what to improve.
+    * DO NOT copy the suggestion text into the effect, cause, or deviation fields.
+    * Instead, INTERPRET the suggestion and write NEW technical content.
+    * The output text MUST NOT match the suggestion verbatim.
+    * Example - If suggestion is "describe specific physical outcome":
+      - WRONG: "describe specific physical outcome"
+      - RIGHT: "The vehicle overshoots the target position by 1.2 meters, striking the
+        concrete barrier at the end of the bay at 4 km/h."
+    * Example - If suggestion is "trace through sensor failure":
+      - WRONG: "trace through sensor failure"
+      - RIGHT: "False-negative obstacle detection allows the system to continue motion
+        toward an undetected obstacle at low speed."
+    * Example - If suggestion is "make the effect more specific":
+      - WRONG: "make the effect more specific"
+      - RIGHT: "Delayed pressure buildup extends stopping distance by 0.8 m, resulting in
+        low-speed contact with the obstacle behind."
+  - Write domain-specific, technical text only (short, system-level for effect).
+  - If a hint is vague, infer a plausible concrete value consistent with the row.
+  
+  EFFECT DIVERSIFICATION & CONTEXT RULES (for targeted rows):
+  - When patching an effect, ensure the replacement uses a different vehicle
+    behavior type than other rows for the same function. Do not duplicate the
+    motion pattern of a sibling row.
+  - Unless system notes specify highway context, prefer low-speed parking
+    outcomes (curb strike, parked vehicle contact, pedestrian contact, rollback).
+  - Avoid reusing the same outcome phrase as other rows in the function.
+  - Read the cause's failure domain (hardware, ECU/software, communication,
+    electrical, perception/sensor) and trace the patched effect through that
+    domain's propagation path. For perception causes, trace: detection failure ->
+    incorrect scene model -> wrong planning decision -> vehicle-level consequence.
+
+  If additional context (notes or RAG material) is appended below, use it to
+  trace more accurate system-level effects:
+  - Prefer subsystem names and interaction paths from the context.
+  - Use physical parameters and safety thresholds from the context.
+  - Match domain-specific effect terminology from the context.
+  Do not copy context verbatim.
+
+  STRICT OUTPUT INSTRUCTION:
+    Output a top-level JSON ARRAY of row OBJECTS (same count as input subset).
+    Do not wrap in an outer object. Do not output prose. Use standard JSON.
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, function, guideword, deviation, cause, effect, potentially_dangerous]
+    properties:
+      row_id: { type: string }
+      function: { type: string }
+      guideword: { type: string }
+      deviation: { type: string }
+      cause: { type: string }
+      effect: { type: string }
+      potentially_dangerous: { type: boolean }
+constraints: |
+  - Output JSON ONLY (an array of rows).
+  - Return the FULL list in the SAME order/length as rows_l3_json.
+  - Non-targeted rows must be byte-for-byte unchanged.
+  - Edit ONLY the fields listed for the targeted row_id(s).
+  - Forbidden meta phrases inside fields: "ensure", "make sure", "provide", "be specific",
+    "value error", "field must not be empty", "placeholder", "nominal", "normal",
+    "no change", "unchanged".
+  - Effect must be ≤24 words.
+  - If "potentially_dangerous" is in fields for a targeted row, you MUST update it (do not keep old value).
+  - Ban vague words unless made specific: malfunction, failure, issue, error.
+  - Ban generic safety phrases in effect: "risk of collision", "risking collision",
+    "unpredictable behavior", "potential hazards", "potential hazard", "dangerous situation",
+    "safety risk", "risking loss of control", "loss of control", "may cause an accident", "unintended consequences",
+    "risking obstacle contact".
+  - Effect must be diversified: do not reuse the same vehicle motion pattern as other rows for the same function.
+  - For parking/low-speed functions, prefer parking-appropriate outcomes over highway-style outcomes.
+  - Effect must NOT end with a generic risk statement.
+  - Effect must not contradict cause physics: braking activation cannot cause acceleration; increased braking force cannot produce unintended acceleration.
+  - Effect should address subsystem impact, vehicle dynamics change, and safety consequence as content goals. Must NOT start with "Due to..." or repeat deviation text.
+  - Effect must trace through the cause's failure domain (hardware, ECU/software, communication, electrical).
+  - potentially_dangerous: true only if the effect plausibly leads to unintended vehicle motion or physical contact; false when the vehicle remains stationary, enters a safe state, or only convenience/precision is affected. Classification must follow propagation logic.
+
+payload_template: |
+  {
+    "rows_l3": {{rows_l3_json}},
+    "row_hints": {{row_hints_json}}
+  }

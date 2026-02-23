@@ -1,0 +1,209 @@
+VEHICLE CONTROL ACTUATORS — PARKING-SPECIFIC FAILURE MODES
+
+Purpose:
+- Document actuator subsystem specifications and failure modes specific to
+  automated parking assist (APA) and automated valet parking (AVP) features.
+- Provide concrete component names, operating parameters, and documented
+  failure mechanisms for HAZOP cause and effect generation.
+
+
+=== ELECTRIC POWER STEERING (EPS) ===
+
+Architecture: column-mounted or rack-mounted BLDC/PMSM motor drives a
+reduction gear to apply steering assist torque. Torque sensor on input shaft
+measures driver input. ECU computes assist based on vehicle speed, driver
+torque, and steering angle. Typical parking assist torque range 5-14 Nm at
+the motor (50-140 Nm at the rack through reduction gear ratio 10:1).
+
+Key components: BLDC motor, MOSFET H-bridge inverter (6 switches), torque
+sensor (magnetostrictive or strain gauge), steering angle sensor (absolute
+encoder), rack position sensor.
+
+Failure modes:
+
+  MOSFET bridge failure: a single MOSFET short-circuit in the H-bridge causes
+  uncontrolled current flow through one motor phase. Depending on which switch
+  fails, this produces either a constant assist torque in one direction (pull
+  to left or right) or complete loss of assist. MOSFET failure rate increases
+  with junction temperature — thermal derating begins above 120C, with
+  accelerated failure above 150C.
+
+  Torque sensor drift: over time and temperature cycling, the torque sensor
+  zero-point drifts by 0.1-0.5 Nm. The EPS ECU interprets this offset as
+  constant driver input, producing a persistent assist bias. At parking speed
+  where nominal driver torque is 2-5 Nm, a 0.5 Nm offset represents 10-25%
+  error in the assist calculation.
+
+  Full-lock saturation at parking speed: during tight parking maneuvers, the
+  steering system reaches mechanical end-stop. The EPS motor stalls against
+  the end-stop, drawing maximum current (30-50 A). If the driver or automated
+  system continues to command beyond end-stop, the motor draws continuous stall
+  current. Thermal protection limits motor-on time to 5-15 seconds at stall
+  before triggering thermal shutdown.
+
+  Thermal derating: sustained full-lock maneuvers (common in tight parking)
+  cause motor and MOSFET temperatures to rise. Above 100C motor winding
+  temperature, the ECU progressively reduces maximum current — assist torque
+  drops by 30-50%. This manifests as gradually increasing steering effort
+  during multi-point parking maneuvers.
+
+  Steering angle sensor absolute position loss: if the sensor loses its
+  absolute reference (power cycle during motion, battery disconnect), the ECU
+  cannot determine true wheel angle until a learning drive is completed.
+  During this period, the APA system cannot execute angle-precise maneuvers.
+
+
+=== INTEGRATED ELECTRONIC BRAKE (IEB) / BRAKE-BY-WIRE ===
+
+Architecture: electromechanical unit replaces traditional vacuum booster. An
+electric motor drives a ball screw to generate brake master cylinder pressure.
+Typical maximum pressure 180-200 bar. Pressure build time from zero to full:
+<150 ms (typical target). Suppliers include HL Mando (iMEB), Continental
+(MK C2), Bosch (iBooster + ESP hev).
+
+Key components: brushless DC motor, ball screw mechanism, master cylinder
+with dual-circuit hydraulic output, pressure sensor, motor position encoder,
+ECU with dual-core safety processor.
+
+Failure modes:
+
+  Insufficient pressure at repeated low-speed stops: during automated parking,
+  the brake system is commanded to make frequent stops at very low speed
+  (<5 km/h). The motor repeatedly cycles between zero and low pressure (10-30
+  bar). Under certain conditions, the ball screw mechanism does not advance
+  fully, producing pressure 20-40% below commanded value. This failure mode
+  was documented in the Kia EV9 NHTSA recall (24V-693, January 2024) affecting
+  HL Mando IEB units — repeated stops at speeds below approximately 2 mph
+  produced insufficient braking pressure.
+
+  Motor thermal limitation: continuous low-pressure cycling (as in stop-and-go
+  parking maneuvers) heats the motor windings. Above thermal threshold, the
+  ECU limits maximum motor current, reducing peak available braking pressure
+  from 200 bar to approximately 120 bar. This degradation may not trigger a
+  brake warning lamp if the pressure remains above the minimum threshold.
+
+  Ball screw backlash: mechanical wear in the ball screw assembly introduces
+  0.1-0.3 mm of backlash. When the ECU reverses motor direction (switching
+  from brake apply to brake release), the backlash creates a dead zone —
+  the motor must travel through the backlash before pressure changes. This
+  adds 20-40 ms to pressure response, which can be significant during
+  emergency brake requests at close range.
+
+  Hydraulic circuit imbalance: the dual-circuit master cylinder feeds front
+  and rear axle circuits. If one circuit has a slight restriction (air bubble,
+  partially blocked line), pressure builds unevenly. The vehicle decelerates
+  asymmetrically, pulling to one side during braking — particularly noticeable
+  at the low speeds used in parking.
+
+  Pressure sensor offset: the internal pressure sensor develops a zero-offset
+  drift over time. The ECU's closed-loop pressure control compensates, but if
+  the offset exceeds the compensation range (typically +/-5 bar), the actual
+  pressure deviates from commanded pressure without triggering a fault code.
+
+
+=== ELECTRIC DRIVE (TRACTION MOTOR) ===
+
+Architecture: for battery-electric vehicles used in AVP, the traction motor
+provides propulsion and regenerative braking. The inverter converts DC battery
+voltage to three-phase AC. A creep function simulates automatic-transmission
+idle creep at 3-5 km/h for parking maneuvers.
+
+Failure modes:
+
+  Creep function calibration error: the creep torque target is calibrated for
+  flat-ground operation. On parking structure ramps (8-16% gradient), the
+  calibrated creep torque may be insufficient to hold the vehicle, causing
+  rollback. Conversely, on steep downhill grades, creep torque may be excessive,
+  causing unintended acceleration toward the parking space.
+
+  Inverter gate driver failure: a single gate driver IC failure in the three-
+  phase inverter causes loss of one motor phase. The motor produces pulsating
+  torque with 33% reduced average output and significant vibration. The vehicle
+  can still move but with jerky, unpredictable motion.
+
+  Regenerative braking calibration error: during parking, the vehicle
+  alternates between motoring and regenerative braking. If the regen torque map
+  is miscalibrated, the vehicle decelerates too aggressively (jerky motion,
+  uncomfortable for passengers, imprecise position control) or too weakly
+  (relies on friction brakes for all deceleration, increasing brake wear and
+  response time).
+
+  Parking pawl engagement failure: at the end of a parking maneuver, the
+  transmission controller commands the parking pawl to engage. If the pawl
+  does not fully engage (misalignment, worn detent, insufficient actuator
+  force), the vehicle is not mechanically locked. Combined with a brake
+  release, the vehicle may roll freely.
+
+
+=== ELECTRIC PARKING BRAKE (EPB) ===
+
+Architecture: cable-actuated or caliper-integrated electric motor applies
+parking brake to rear wheels. Engagement force typically 15-30 kN at the
+caliper. Auto-hold function applies EPB automatically when the vehicle stops.
+
+Failure modes:
+
+  Cable stretch: over time and repeated actuation, the steel cable connecting
+  the EPB motor to the rear calipers stretches. This reduces clamping force
+  at the caliper. On inclines exceeding 10%, the reduced clamping force may
+  be insufficient to hold the vehicle — the vehicle creeps or rolls slowly
+  downhill.
+
+  Auto-hold release logic error: the EPB auto-hold function releases the brake
+  when the driver (or APA system) commands drive torque. If the release
+  threshold is set too low, the EPB releases before sufficient drive torque is
+  established, causing momentary rollback on inclines. If set too high, the
+  EPB remains engaged while the traction motor drives against it, causing
+  excessive current draw and potential drivetrain damage.
+
+  Caliper-integrated EPB motor seizure: the small DC motor inside the caliper
+  assembly is exposed to heat (brake rotor temperature can exceed 200C during
+  repeated braking) and moisture. Corrosion or thermal damage to the motor
+  bearings can cause seizure — the parking brake remains applied and cannot be
+  released electrically, requiring manual release.
+
+
+=== COMMUNICATION NETWORKS (CAN / CAN-FD / ETHERNET) ===
+
+Architecture: parking-related ECUs communicate over CAN (500 kbaud) or CAN-FD
+(2-5 Mbaud) buses. Some newer architectures use automotive Ethernet (100BASE-T1
+or 1000BASE-T1) for high-bandwidth sensor data. A central gateway routes
+messages between domains (powertrain, chassis, body, ADAS).
+
+Failure modes:
+
+  Bus-off state: CAN protocol forces a node into bus-off state after
+  accumulating 256 error counts (transmit error counter). A faulty node
+  generating errors can drive other nodes to bus-off. In bus-off, the ECU
+  cannot transmit or receive messages. Recovery requires bus-off recovery
+  sequence (128 x 11 recessive bits), taking 1.3-25 ms depending on
+  implementation.
+
+  CRC failure and frame discard: CAN-FD frames include a CRC field. If
+  electromagnetic interference (from ignition, EPS motor, or external sources)
+  corrupts a frame, the CRC check fails and the frame is discarded. The
+  receiving ECU uses the last-known value for that signal. For safety-critical
+  signals (wheel speed, steering angle), stale data persists until the next
+  valid frame, typically 10-20 ms.
+
+  Arbitration delay under high bus load: CAN uses priority-based arbitration.
+  Low-priority messages (parking sensor data, typically 0x600+ message IDs)
+  are delayed when higher-priority messages (powertrain, ABS, typically
+  0x100-0x200) occupy the bus. At bus utilization above 80%, low-priority
+  parking messages experience delays of 10-50 ms beyond their nominal period.
+
+  Gateway routing error: the central gateway routes messages between bus
+  segments. A gateway firmware fault or configuration error can mis-route,
+  delay, or drop messages. If a brake command from the parking ECU is routed
+  to the wrong bus segment, the brake controller never receives it.
+
+  Message authentication failure: SecOC (Secure On-Board Communication) adds
+  authentication to safety messages. If the authentication key or counter
+  desynchronizes between sender and receiver (e.g., after ECU reset), valid
+  messages are rejected as inauthentic. The receiving ECU treats the signal
+  as unavailable.
+
+  Ethernet switch latency: automotive Ethernet switches introduce 5-50
+  microsecond forwarding latency per hop. Under heavy traffic (camera streams,
+  LiDAR point clouds), queuing delays can increase to 1-5 ms. For time-
+  critical sensor data, this added latency affects fusion timestamp accuracy.

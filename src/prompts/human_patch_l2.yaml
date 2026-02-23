@@ -1,0 +1,135 @@
+title: HUMAN_PATCH_L2_TARGETED
+inputs:
+  - rows_l2_json
+  - row_hints_json
+instructions: |
+  You receive CURRENT L2 rows and human-provided feedback for specific rows.
+
+  ## HANDLING EMPTY OR MISSING SUGGESTIONS
+
+  If the suggestion field is empty, blank, or not provided for a targeted row:
+  - Generate a NEW, plausible technical cause value for that row
+  - Base it on the existing row context (function, guideword, deviation)
+  - Write fresh domain-specific HAZOP content as if generating from scratch
+  - Ensure the new cause is DIFFERENT from the original (do not return unchanged)
+
+  The anti-copy rules below only apply when a non-empty suggestion IS provided.
+
+  ## YOUR ROLE: TRANSLATOR, NOT TRANSCRIBER
+
+  When the user HAS provided a suggestion, your job is to INTERPRET their intent
+  and TRANSFORM it into proper technical HAZOP content.
+
+  Think of it like this:
+  - User says: "make it about pump cavitation" (their INTENT)
+  - You write: "The centrifugal pump experienced cavitation due to insufficient NPSH, causing vapor pockets to form and collapse, leading to reduced discharge pressure." (TECHNICAL CONTENT)
+
+  The user is NOT a HAZOP expert - they are giving you DIRECTION, not dictation.
+  You must translate their everyday language into domain-specific technical text.
+
+  ## CRITICAL ANTI-COPY RULES
+
+  *** NEVER copy the user's suggestion text into ANY output field ***
+
+  WRONG OUTPUTS (will be rejected):
+  - "make it about pump cavitation" (copied verbatim)
+  - "The cause involves making it about pump cavitation" (wrapped copy)
+  - "Pump cavitation as suggested" (paraphrased copy)
+  - "Per user request: pump cavitation" (attributed copy)
+
+  CORRECT OUTPUTS (what you should write):
+  - "The centrifugal pump inlet strainer became blocked with debris, reducing available NPSH and initiating cavitation damage to the impeller."
+  - "Air ingress through a degraded mechanical seal caused the pump to lose prime and cavitate."
+  - "Insufficient submergence in the suction tank allowed vortex formation, drawing air into the pump suction."
+
+  ## SELF-VALIDATION CHECKLIST (apply before returning)
+
+  For each modified row, verify:
+  1. Does the output text match or contain the suggestion text? If YES → rewrite
+  2. Is the output written in technical HAZOP language? If NO → rewrite
+  3. Does the cause explain HOW the deviation occurred? If NO → rewrite
+  4. Does it identify a specific component and failure mechanism? If NO → rewrite
+  5. Would a HAZOP engineer recognize this as a proper root cause? If NO → rewrite
+
+  ## YOUR TASK
+
+  - Return the FULL list of L2 rows, in the SAME order and SAME length.
+  - For targeted row_ids:
+      * Edit ONLY fields listed in "fields" (subset of: ["deviation","cause"])
+      * Keep "row_id","function","guideword" UNCHANGED.
+      * Ensure that the function → guideword → deviation → cause chain is coherent and technically plausible.
+      * INTERPRET the user's suggestion and write NEW technical cause text.
+      * When modifying the "cause" field, identify a specific component or module, describe a concrete failure mechanism (e.g., stuck-high/low, leak, open-circuit, short-to-battery), and show how this failure leads to the deviation.
+      * FORMAT: Write causes as complete natural sentences. Do NOT use "Label: text" or "[Category] text" format.
+  - Non-targeted rows: return UNCHANGED (verbatim).
+
+  ## MORE EXAMPLES OF CORRECT TRANSFORMATION
+
+  User suggestion: "electrical problem"
+  WRONG: "electrical problem"
+  RIGHT: "An electrical short circuit in the motor winding caused overcurrent protection to trip, halting operation."
+
+  User suggestion: "something with the sensor"
+  WRONG: "something with the sensor"
+  RIGHT: "The pressure transmitter suffered drift due to temperature cycling, causing erroneous low-pressure readings."
+
+  User suggestion: "human error"
+  WRONG: "human error"
+  RIGHT: "The operator inadvertently closed the manual bypass valve during routine rounds, restricting flow."
+
+  User suggestion: "software bug"
+  WRONG: "software bug"
+  RIGHT: "A race condition in the PLC program caused the interlock logic to evaluate stale input values."
+
+  ## STYLE RULES
+
+  - Write domain-specific, technical text only (concise, component/signal-level).
+  - Write causes as complete English sentences (capital letter start, period end).
+  - NEVER use the ':' character or bracket prefixes in cause text.
+  - Describe naturally: "The <component> experienced <failure>, causing <result>."
+  - If the hint is vague, infer a plausible concrete value consistent with the row.
+  - Do NOT enforce cross-row uniqueness; sharing causes across deviations is allowed.
+
+  If additional context (notes or RAG material) is appended below, use it to
+  ground your corrections in the described domain:
+  - Prefer component names and failure modes from the context.
+  - Use signal names and fault categories from the context.
+  - Match domain-specific terminology from the context.
+  Do not copy context verbatim.
+
+  STRICT OUTPUT INSTRUCTION:
+  Output a top-level JSON ARRAY of row OBJECTS (same count as input subset).
+  Do not wrap in an outer object. Do not output prose. Use standard JSON.
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, function, guideword, deviation, cause]
+    properties:
+      row_id: { type: string }
+      function: { type: string }
+      guideword: { type: string }
+      deviation: { type: string }
+      cause: { type: string }
+constraints: |
+  - Output JSON ONLY (an array of rows).
+  - Return the FULL list in the SAME order/length as rows_l2_json.
+  - Non-targeted rows must be byte-for-byte unchanged.
+  - Edit ONLY the fields listed for the targeted row_id(s).
+  - NEVER copy user suggestion text into output fields.
+  - Forbidden meta phrases inside fields: "ensure", "make sure", "provide", "be specific",
+    "value error", "field must not be empty", "placeholder", "nominal", "normal",
+    "no change", "unchanged", "as suggested", "per user request", "user wants".
+  - Write the 'cause' as complete English sentences (capital letter start, period end).
+  - NEVER use the ':' character or bracket prefixes in cause text.
+  - Describe naturally: "The <component> experienced <failure>, causing <result>."
+  - Cause should be 10–20 words; one or two complete sentences.
+  - The failure mechanism must be physically compatible with the component type.
+  - The cause must explain HOW the failure mechanism produces the deviation.
+  - Ban vague words unless made specific: malfunction, failure, issue, error.
+  - Reject braking physics contradictions: braking activation cannot cause acceleration; increased braking force cannot cause unintended acceleration.
+payload_template: |
+  {
+    "rows_l2": {{rows_l2_json}},
+    "row_hints": {{row_hints_json}}
+  }
