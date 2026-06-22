@@ -1,97 +1,76 @@
 # src/graph_full.py
-"""LangGraph state machine defining the full HAZOP pipeline with repair loops.
+"""LangGraph state machine for the AI-HAZOP-8800 pipeline (config-driven engine).
 
-The pipeline flows:  START → RAG_PREP → L1 → L2 → L3 → Holistic Review → END
+The pipeline runs a single AI component+aspect through all eight phases:
 
-Each stage (L1, L2, L3) follows the same cycle:
+  START → L1 Failure Mode → L2 Hazard → L3 Initial Risk → L4 Acceptance →
+          L5 Safety Goals → L6 Measures → L7 Residual Risk → L8 Evidence →
+          HOLISTIC REVIEW → END
+
+Every phase shares one cycle, built from a single ``PHASE_SPECS`` table:
+
   INIT → VALIDATE → (if issues) REVIEW → REGEN → VALIDATE → …
-with a hard cap of MAX_STAGE_REPAIR rounds before proceeding.
 
-After L3 passes, a holistic cross-stage review checks consistency across all
-rows and may cascade regeneration back through earlier stages (L1→L2→L3).
+with a hard cap of MAX_STAGE_REPAIR repair rounds per phase (earliest-faulty-phase
+-first, matching the architecture doc §7). Conditional early-exit is handled by row
+filtering, not graph branching:
+  * L3–L4 only process rows that L2 flagged ``potentially_dangerous``;
+  * L5–L7 only process rows whose L4 ``safety_decision`` is not ACCEPT;
+  * L8 evidences the union of L7 (improved) rows and L4 ACCEPT rows.
+Filtered-out rows carry through to worksheet assembly with empty downstream fields.
+
+After L8, a holistic reviewer checks cross-phase consistency over the whole
+worksheet and routes repair to the earliest faulty phase (bounded by
+MAX_HOLISTIC_ROUNDS) via ``patch_and_cascade``.
 """
 from __future__ import annotations
+
 import logging
 import re
-from typing import TypedDict, List, Dict, Any, Literal
 from copy import deepcopy
+from typing import TypedDict, List, Dict, Any, Callable
+
 from langgraph.graph import StateGraph, START, END
 
 logger = logging.getLogger(__name__)
 
-# === Shared row utilities ====================================================
 from .row_utils import (
     _ensure_rows_list,
-    _row_get,
     _row_to_dict,
-    _ensure_row_ids,
     _suffix,
     _pydantic_to_dicts,
-    _merge_rag_notes,
-    _rows_equal_by_suffix,
-    _merge_full_by_key,
     _merge_subset_by_suffix,
     _pick_rows_by_suffix,
+    _rows_equal_by_suffix,
 )
-
-# === Chains / reviewers (existing API) =======================================
-from .chains import (
-    # L1
-    l1_init_full_coverage,
-    l1_to_reviewer,
-    reviewer_to_l1,
-    reviewer_patch_l1,
-    # L2
-    l2_init_from_l1,
-    l2_to_reviewer,
-    reviewer_patch_l2,
-    # L3
-    l3_init_from_l2,
-    l3_to_reviewer,
-    reviewer_patch_l3,
-    # Holistic
-    l3_pass_to_reviewer_holistic,
-)
-
-# === Validators & helpers (existing API) =====================================
+from .ai_chains import ai_l1_generate, ai_phase_generate, ai_reviewer, ai_patch, ai_holistic_review
 from .validators import (
     validate_l1_payload,
     validate_l2_payload,
     validate_l3_payload,
+    validate_l4_payload,
+    validate_l5_payload,
+    validate_l6_payload,
+    validate_l7_payload,
+    validate_l8_payload,
     build_validator_report,
 )
+from .catalogue_loader import load_catalogue
+from .risk_model import compute_risk, FACTORS
 
-# === RAG utils (optional) ===================================================
-try:
-    from .rag_utils import load_documents, build_index, search  # type: ignore
-except Exception:
-    load_documents = build_index = search = None  # type: ignore
-
+MAX_STAGE_REPAIR = 2
+MAX_HOLISTIC_ROUNDS = 3
 
 
 # ============================================================================
 #                                STATE
-# The graph state is a TypedDict carrying all data between nodes: input
-# parameters, RAG artefacts, per-stage row lists, validation flags, repair
-# counters, and holistic review state.
 # ============================================================================
 class HazopGraphState(TypedDict, total=False):
-    functions: List[str]
-    guideword_map: Dict[str, Any]
-    max_devs_per_gw: int
-
-    # --- RAG (optional) ---
-    rag_enabled: bool
-    rag_paths: List[str]
-    rag_embedder: str  # 'local' | 'openai'
-    rag_vec: Any
-    rag_mat: Any
-    rag_docs: List[str]
-    rag_notes_l1: str
-    rag_notes_l2: str
-    rag_notes_l3: str
-    rag_min_sim: float
-
+    # --- analysis context (architecture doc §2) ---
+    ctx: Dict[str, str]                # component, component_class, aspect, odd, scenario
+    guidewords: List[Dict[str, Any]]   # working guideword catalogue entries
+    class_questions: List[str]
+    aspect_hint: str
     notes: str
 
     rows_l1: List[Dict[str, Any]]
@@ -112,6 +91,37 @@ class HazopGraphState(TypedDict, total=False):
     l3_suggestion: str
     l3_repair_round: int
 
+    rows_l4: List[Dict[str, Any]]
+    l4_ok: bool
+    l4_issues: List[str]
+    l4_suggestion: str
+    l4_repair_round: int
+
+    rows_l5: List[Dict[str, Any]]
+    l5_ok: bool
+    l5_issues: List[str]
+    l5_suggestion: str
+    l5_repair_round: int
+
+    rows_l6: List[Dict[str, Any]]
+    l6_ok: bool
+    l6_issues: List[str]
+    l6_suggestion: str
+    l6_repair_round: int
+
+    rows_l7: List[Dict[str, Any]]
+    l7_ok: bool
+    l7_issues: List[str]
+    l7_suggestion: str
+    l7_repair_round: int
+
+    rows_l8: List[Dict[str, Any]]
+    l8_ok: bool
+    l8_issues: List[str]
+    l8_suggestion: str
+    l8_repair_round: int
+
+    # --- holistic cross-phase review ---
     holistic_ok: bool
     holistic_issues: List[str]
     holistic_round: int
@@ -119,877 +129,526 @@ class HazopGraphState(TypedDict, total=False):
     holistic_scope: str
     holistic_target_ids: List[str]
 
+
 # ============================================================================
 #                            GENERIC HELPERS
 # ============================================================================
 
+_ROWID_RE = re.compile(r"(L[1-8]-\d+)")
+
 
 def _extract_row_ids_from_issues(issues: List[str]) -> List[str]:
-    """
-    Extract a list of unique row_id strings (e.g., "L1-3") from a list
-    of arbitrary issue strings.  The holistic reviewer may return
-    messages that embed row identifiers in various contexts (e.g.,
-    "Inconsistent cause for L1-3: …" or "row[0] (row_id=L1-3)").  A
-    simple regex without word-boundary anchors is used to match any
-    occurrences of the pattern `L<stage>-<number>`, regardless of
-    trailing punctuation.  Duplicate identifiers are de-duplicated
-    while preserving order.
-
-    Args:
-        issues: A list of arbitrary strings from the holistic reviewer.
-
-    Returns:
-        A list of unique row_ids in the order they first appear.
-    """
-    row_ids: List[str] = []
-    if not issues:
-        return []
-    # Match any substring like "L1-3", "L2-10" or "L3-25".  Do not
-    # anchor with word boundaries because row identifiers may be
-    # adjacent to punctuation (e.g., "L1-3:" or "row_id=L1-3").
-    pat = re.compile(r'(L[123]-\d+)')
-    for s in issues:
+    """Extract unique row_ids (e.g. 'L1-3') embedded in issue strings."""
+    out: List[str] = []
+    seen = set()
+    for s in issues or []:
         if s is None:
             continue
-        row_ids.extend(pat.findall(str(s)))
-    # Deduplicate while preserving order
-    seen: set[str] = set()
-    out: List[str] = []
-    for rid in row_ids:
-        if rid not in seen:
-            out.append(rid)
-            seen.add(rid)
+        for rid in _ROWID_RE.findall(str(s)):
+            if rid not in seen:
+                out.append(rid)
+                seen.add(rid)
     return out
 
-def _rag_notes(state: HazopGraphState, stage_key: str) -> str:
-    """Merge base notes with RAG notes for a given stage."""
-    return _merge_rag_notes(state.get("notes") or "", state.get(stage_key) or "")
 
-def _suffixes_from_row_ids(row_ids: List[str]) -> List[str]:
-    return sorted({ _suffix(rid) for rid in (row_ids or []) if isinstance(rid, str) and rid })
+def _suffixes(row_ids: List[str]) -> List[str]:
+    return sorted({_suffix(r) for r in (row_ids or []) if r})
 
-def _scope_to_highest_stage(scope: str) -> Literal["L1","L2","L3"]:
-    s = (scope or "ALL").upper()
-    if s == "L1": return "L1"
-    if s == "L2": return "L2"
-    if s == "L3": return "L3"
-    return "L1"  # default to earliest/highest
+
+def _truthy(v: Any) -> bool:
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() in ("true", "1", "yes", "y")
+
+
+# ---------------------------------------------------------------------------
+# Risk computation — applied to L3 rows before validation, so that both the
+# initial generation and any factor-level repair recompute R consistently.
+# ---------------------------------------------------------------------------
+
+def _attach_risk(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        r = dict(r)
+        risk, status, _target = compute_risk(r)
+        if risk is not None:
+            r["initial_risk"] = risk
+        r["risk_status"] = status
+        out.append(r)
+    return out
+
+
+def _attach_residual_risk(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        r = dict(r)
+        factors = {f: r.get(f"residual_{f}") for f in FACTORS}
+        risk, status, _target = compute_risk(factors)
+        if risk is not None:
+            r["residual_risk"] = risk
+        r["residual_status"] = status
+        out.append(r)
+    return out
+
 
 # ============================================================================
-#                          REGEN NODE FACTORY
-# All three regen nodes (L1, L2, L3) share the same pattern: extract hints
-# from the reviewer, attempt a targeted patch on the affected rows, and
-# fall back to full regeneration if the patch didn't change anything.
-# The factory below creates stage-specific nodes from a shared template.
+#                          PHASE GENERATORS
 # ============================================================================
-# Configuration for stage-specific regen behavior. Each stage has:
-# - rows_key: state key for the stage's rows
-# - suggestion_key: state key for reviewer suggestion
-# - issues_key: state key for validator issues
-# - repair_round_key: state key for repair round counter
-# - field: the field to patch (deviation, cause, effect)
-# - prefix: row_id prefix (L1, L2, L3)
-# - patcher: function to call for targeted patch
-# - fallback_uses_full_key_merge: True for L1, False for L2/L3
-from typing import Callable, Any as TypingAny
 
-REGEN_CONFIG = {
-    "L1": {
-        "rows_key": "rows_l1",
-        "suggestion_key": "l1_suggestion",
-        "issues_key": "l1_issues",
-        "repair_round_key": "l1_repair_round",
-        "field": "deviation",
-        "prefix": "L1",
-        "patcher": lambda subset, hints, notes="": reviewer_patch_l1(subset, hints, notes=notes),
-        "fallback_uses_full_key_merge": True,
-    },
-    "L2": {
-        "rows_key": "rows_l2",
-        "suggestion_key": "l2_suggestion",
-        "issues_key": "l2_issues",
-        "repair_round_key": "l2_repair_round",
-        "field": "cause",
-        "prefix": "L2",
-        "patcher": lambda subset, hints, notes="": reviewer_patch_l2(subset, hints, notes=notes),
-        "fallback_uses_full_key_merge": False,
-    },
-    "L3": {
-        "rows_key": "rows_l3",
-        "suggestion_key": "l3_suggestion",
-        "issues_key": "l3_issues",
-        "repair_round_key": "l3_repair_round",
-        "field": "effect",
-        "prefix": "L3",
-        "patcher": lambda subset, hints, notes="": reviewer_patch_l3(subset, hints, notes=notes),
-        "fallback_uses_full_key_merge": False,
-    },
-}
-
-
-def _l1_fallback_regen(state: HazopGraphState, target_suffixes: List[str], sug: str) -> List[Dict[str, Any]]:
-    """L1-specific fallback: regenerate via reviewer_to_l1 and merge by key."""
-    notes = _rag_notes(state, "rag_notes_l1")
-    regenerated = reviewer_to_l1(
-        state["functions"],
-        state["guideword_map"],
-        [sug] if sug else [],
-        state.get("max_devs_per_gw", 2),
-        notes=notes,
-    ) or []
-    regenerated = _ensure_rows_list(regenerated)
-    _ensure_row_ids("L1", regenerated)
-    current = [_row_to_dict(r) for r in (state["rows_l1"] or [])]
-    return _merge_full_by_key(
-        current, regenerated, target_suffixes,
-        key_fields=["function", "guideword"]
+def _gen_l1(state: HazopGraphState) -> List[Dict[str, Any]]:
+    return ai_l1_generate(
+        state["ctx"],
+        state["guidewords"],
+        state.get("class_questions", []),
+        state.get("aspect_hint", ""),
+        state.get("notes", ""),
     )
 
 
-def _l2_fallback_regen(state: HazopGraphState, target_suffixes: List[str], current: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """L2-specific fallback: regenerate via l2_init_from_l1 and merge by suffix."""
-    notes = _rag_notes(state, "rag_notes_l2")
-    l2_full = l2_init_from_l1(state["rows_l1"], notes=notes) or []
-    l2_full = _ensure_rows_list(l2_full)
-    _ensure_row_ids("L2", l2_full)
-    l2_subset = _pick_rows_by_suffix(l2_full, target_suffixes)
-    return _merge_subset_by_suffix(current, l2_subset)
+def _gen_l2(state: HazopGraphState) -> List[Dict[str, Any]]:
+    return ai_phase_generate("L2", state.get("rows_l1") or [], notes=state.get("notes", ""))
 
 
-def _l3_fallback_regen(state: HazopGraphState, target_suffixes: List[str], current: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """L3-specific fallback: regenerate via l3_init_from_l2 and merge by suffix."""
-    notes = _rag_notes(state, "rag_notes_l3")
-    l3_full = l3_init_from_l2(state["rows_l2"], notes=notes) or []
-    l3_full = _ensure_rows_list(l3_full)
-    _ensure_row_ids("L3", l3_full)
-    l3_subset = _pick_rows_by_suffix(l3_full, target_suffixes)
-    return _merge_subset_by_suffix(current, l3_subset)
+def _risk_inputs() -> Dict[str, str]:
+    import json
+    rm = load_catalogue("risk_model")
+    acc = load_catalogue("acceptance_criterion")
+    scales = {f: list((rm["factors"][f]["levels"]).keys()) for f in rm.get("factors", {})}
+    return {
+        "risk_scales_json": json.dumps(scales, ensure_ascii=False),
+        "mem_target": json.dumps(acc.get("mem_target")),
+    }
 
 
-def _create_regen_node(stage: str) -> Callable[[HazopGraphState], Dict[str, TypingAny]]:
-    """Factory to create stage-specific regen nodes.
+def _gen_l3(state: HazopGraphState) -> List[Dict[str, Any]]:
+    """L3 processes ONLY the dangerous subset of L2 rows (conditional early-exit)."""
+    prev = state.get("rows_l2") or []
+    dangerous = [r for r in prev if _truthy(_row_get_field(r, "potentially_dangerous"))]
+    logger.info("L3_INIT: %d/%d rows are potentially_dangerous", len(dangerous), len(prev))
+    if not dangerous:
+        return []
+    rows = ai_phase_generate("L3", dangerous, extra_inputs=_risk_inputs(), notes=state.get("notes", ""))
+    return _attach_risk(rows)
 
-    All three regen nodes (L1, L2, L3) follow the same pattern:
-    1. Extract suggestion and target row IDs from state
-    2. If suggestion exists, attempt targeted patch
-    3. Merge patched subset back into current rows
-    4. If patch failed or no change, fall back to full regeneration
-    5. Return updated rows and increment repair round
 
-    Stage-specific differences are handled via REGEN_CONFIG.
-    """
-    cfg = REGEN_CONFIG[stage]
+def _gen_l4(state: HazopGraphState) -> List[Dict[str, Any]]:
+    import json
+    prev = state.get("rows_l3") or []
+    if not prev:
+        return []
+    acc = load_catalogue("acceptance_criterion")
+    extra = {
+        "mem_target": json.dumps(acc.get("mem_target")),
+        "decisions_json": json.dumps(acc.get("safety_decisions", [])),
+    }
+    return ai_phase_generate("L4", prev, extra_inputs=extra, notes=state.get("notes", ""))
 
-    def regen_node(state: HazopGraphState) -> Dict[str, TypingAny]:
-        if stage == "L3":
-            logger.debug("L3_REGEN IN: rows_l3=%d", len(state['rows_l3']))
 
-        sug = (state.get(cfg["suggestion_key"], "") or "").strip()
-        target_ids = _extract_row_ids_from_issues(state.get(cfg["issues_key"], []))
-        if not target_ids:
-            return {cfg["repair_round_key"]: state.get(cfg["repair_round_key"], 0) + 1}
-        target_suffixes = _suffixes_from_row_ids(target_ids)
+def _is_accept(r: Any) -> bool:
+    return str(_row_get_field(r, "safety_decision") or "").strip().upper() == "ACCEPT"
 
-        current = [_row_to_dict(r) for r in (state[cfg["rows_key"]] or [])]
-        patched_subset: List[Dict[str, TypingAny]] = []
 
-        if sug:
-            subset = _pick_rows_by_suffix(current, target_suffixes)
-            if stage == "L3":
-                logger.debug("L3_REGEN: target_suffixes=%s subset=%d", target_suffixes, len(subset))
-            row_hints = [
-                {"row_id": rid, "fields": [cfg["field"]], "suggestion": sug}
-                for rid in target_ids
-            ]
-            notes = _rag_notes(state, f"rag_notes_{stage.lower()}")
-            patched_subset = cfg["patcher"](subset, row_hints, notes=notes) or []
-            patched_subset = _ensure_rows_list(patched_subset)
-            _ensure_row_ids(cfg["prefix"], patched_subset)
+def _gen_l5(state: HazopGraphState) -> List[Dict[str, Any]]:
+    """ACCEPT-skip (architecture doc §6): only non-ACCEPT rows get safety goals."""
+    prev = state.get("rows_l4") or []
+    non_accept = [r for r in prev if not _is_accept(r)]
+    logger.info("L5_INIT: %d/%d rows need safety goals (non-ACCEPT)", len(non_accept), len(prev))
+    if not non_accept:
+        return []
+    return ai_phase_generate("L5", non_accept, notes=state.get("notes", ""))
 
-        merged = _merge_subset_by_suffix(current, patched_subset) if patched_subset else current
 
-        # Fallback if patch failed or no change
-        if (not patched_subset) or _rows_equal_by_suffix(current, merged):
-            if stage == "L1":
-                merged = _l1_fallback_regen(state, target_suffixes, sug)
-            elif stage == "L2":
-                merged = _l2_fallback_regen(state, target_suffixes, current)
-            else:  # L3
-                merged = _l3_fallback_regen(state, target_suffixes, current)
+def _gen_l6(state: HazopGraphState) -> List[Dict[str, Any]]:
+    import json
+    prev = state.get("rows_l5") or []
+    if not prev:
+        return []
+    extra = {"mitigation_json": json.dumps(load_catalogue("mitigation_taxonomy"), ensure_ascii=False)}
+    return ai_phase_generate("L6", prev, extra_inputs=extra, notes=state.get("notes", ""))
 
-        if stage == "L3":
-            logger.debug("L3_REGEN OUT: merged=%d", len(merged))
 
-        return {
-            cfg["rows_key"]: merged,
-            cfg["repair_round_key"]: state.get(cfg["repair_round_key"], 0) + 1,
-        }
+def _gen_l7(state: HazopGraphState) -> List[Dict[str, Any]]:
+    prev = state.get("rows_l6") or []
+    if not prev:
+        return []
+    rows = ai_phase_generate("L7", prev, extra_inputs=_risk_inputs(), notes=state.get("notes", ""))
+    return _attach_residual_risk(rows)
+
+
+def _gen_l8(state: HazopGraphState) -> List[Dict[str, Any]]:
+    """Evidence for ALL dangerous rows: improved rows (enriched via L7) + ACCEPT rows (bare L4)."""
+    import json
+    l4 = state.get("rows_l4") or []
+    if not l4:
+        return []
+    by7 = {_suffix(str(r.get("row_id"))): r for r in (state.get("rows_l7") or []) if isinstance(r, dict)}
+    union: List[Dict[str, Any]] = []
+    for r in l4:
+        sfx = _suffix(str(r.get("row_id")))
+        union.append(deepcopy(by7.get(sfx, r)))
+    extra = {"evidence_json": json.dumps(load_catalogue("evidence_catalogue"), ensure_ascii=False)}
+    return ai_phase_generate("L8", union, extra_inputs=extra, notes=state.get("notes", ""))
+
+
+def _row_get_field(r: Any, key: str) -> Any:
+    if isinstance(r, dict):
+        return r.get(key)
+    return getattr(r, key, None)
+
+
+# ============================================================================
+#                          PHASE SPEC TABLE
+# Each phase is fully described here; the node/edge factories below build the
+# graph from this single table.
+# ============================================================================
+
+def _validate_l1(state, rows):
+    expected = [g["id"] for g in state.get("guidewords", [])]
+    return validate_l1_payload(rows, expected)
+
+
+PHASE_SPECS: List[Dict[str, Any]] = [
+    {
+        "name": "L1",
+        "generate": _gen_l1,
+        "validate": _validate_l1,
+        "pre_validate": None,
+        "patch_fields": ["failure_mode"],
+        "review_hint": "Re-generate ONLY targeted L1 failure-mode rows using the reviewer suggestion.",
+    },
+    {
+        "name": "L2",
+        "generate": _gen_l2,
+        "validate": lambda state, rows: validate_l2_payload(rows),
+        "pre_validate": None,
+        "patch_fields": ["hazardous_behavior", "potential_harm", "potentially_dangerous"],
+        "review_hint": "Re-generate ONLY targeted L2 hazard rows using the reviewer suggestion.",
+    },
+    {
+        "name": "L3",
+        "generate": _gen_l3,
+        "validate": lambda state, rows: validate_l3_payload(rows),
+        "pre_validate": _attach_risk,
+        "patch_fields": ["E", "PF", "PND", "PNM", "S", "risk_rationale"],
+        "review_hint": "Re-generate ONLY targeted L3 risk rows using the reviewer suggestion.",
+    },
+    {
+        "name": "L4",
+        "generate": _gen_l4,
+        "validate": lambda state, rows: validate_l4_payload(rows),
+        "pre_validate": None,
+        "patch_fields": ["safety_decision", "acceptance_rationale"],
+        "review_hint": "Re-generate ONLY targeted L4 acceptance rows using the reviewer suggestion.",
+    },
+    {
+        "name": "L5",
+        "generate": _gen_l5,
+        "validate": lambda state, rows: validate_l5_payload(rows),
+        "pre_validate": None,
+        "patch_fields": ["ai_safety_goals"],
+        "review_hint": "Re-generate ONLY targeted L5 safety-goal rows using the reviewer suggestion.",
+    },
+    {
+        "name": "L6",
+        "generate": _gen_l6,
+        "validate": lambda state, rows: validate_l6_payload(rows),
+        "pre_validate": None,
+        "patch_fields": ["respecifications", "safety_functions", "passive_operational_measures"],
+        "review_hint": "Re-generate ONLY targeted L6 measure rows using the reviewer suggestion.",
+    },
+    {
+        "name": "L7",
+        "generate": _gen_l7,
+        "validate": lambda state, rows: validate_l7_payload(rows),
+        "pre_validate": _attach_residual_risk,
+        "patch_fields": ["residual_E", "residual_PF", "residual_PND", "residual_PNM", "residual_S", "residual_rationale"],
+        "review_hint": "Re-generate ONLY targeted L7 residual-risk rows using the reviewer suggestion.",
+    },
+    {
+        "name": "L8",
+        "generate": _gen_l8,
+        "validate": lambda state, rows: validate_l8_payload(rows),
+        "pre_validate": None,
+        "patch_fields": ["evidence", "open_assumptions"],
+        "review_hint": "Re-generate ONLY targeted L8 evidence rows using the reviewer suggestion.",
+    },
+]
+
+_SPEC_BY_NAME = {s["name"]: s for s in PHASE_SPECS}
+
+# Derived per-phase state keys.
+def _keys(name: str) -> Dict[str, str]:
+    low = name.lower()
+    return {
+        "rows": f"rows_{low}",
+        "ok": f"{low}_ok",
+        "issues": f"{low}_issues",
+        "suggestion": f"{low}_suggestion",
+        "repair": f"{low}_repair_round",
+    }
+
+
+# ============================================================================
+#                          NODE FACTORIES
+# ============================================================================
+
+def _make_init_node(spec: Dict[str, Any]) -> Callable:
+    k = _keys(spec["name"])
+
+    def init_node(state: HazopGraphState) -> Dict[str, Any]:
+        logger.info("=== %s_INIT ===", spec["name"])
+        rows = spec["generate"](state) or []
+        rows = _ensure_rows_list(rows)
+        return {k["rows"]: rows, k["repair"]: 0}
+
+    return init_node
+
+
+def _make_validate_node(spec: Dict[str, Any]) -> Callable:
+    k = _keys(spec["name"])
+
+    def validate_node(state: HazopGraphState) -> Dict[str, Any]:
+        rows = state.get(k["rows"]) or []
+        if spec["pre_validate"]:
+            rows = spec["pre_validate"](rows)
+        norm_rows, ok, issues = spec["validate"](state, rows)
+        norm_dicts = _pydantic_to_dicts(norm_rows)
+        logger.info("%s_VALIDATE: ok=%s issues=%d rows=%d", spec["name"], ok, len(issues), len(norm_dicts))
+        return {k["rows"]: norm_dicts, k["ok"]: ok, k["issues"]: issues}
+
+    return validate_node
+
+
+def _make_review_node(spec: Dict[str, Any]) -> Callable:
+    k = _keys(spec["name"])
+
+    def review_node(state: HazopGraphState) -> Dict[str, Any]:
+        report = build_validator_report(spec["name"], state.get(k["issues"], []), spec["review_hint"])
+        decision = ai_reviewer(spec["name"], report, state.get(k["rows"]) or [], notes=state.get("notes", ""))
+        return {k["suggestion"]: (decision.get("suggestion") or "").strip()}
+
+    return review_node
+
+
+def _make_regen_node(spec: Dict[str, Any]) -> Callable:
+    k = _keys(spec["name"])
+
+    def regen_node(state: HazopGraphState) -> Dict[str, Any]:
+        sug = (state.get(k["suggestion"], "") or "").strip()
+        target_ids = _extract_row_ids_from_issues(state.get(k["issues"], []))
+        rows = [_row_to_dict(r) for r in (state.get(k["rows"]) or [])]
+        rnd = state.get(k["repair"], 0)
+
+        if not target_ids or not sug:
+            return {k["repair"]: rnd + 1}
+
+        target_sfx = _suffixes(target_ids)
+        subset = _pick_rows_by_suffix(rows, target_sfx)
+        hints = [{"row_id": r.get("row_id"), "fields": spec["patch_fields"], "suggestion": sug} for r in subset]
+
+        patched = ai_patch(spec["name"], subset, hints, notes=state.get("notes", "")) or []
+        patched = _ensure_rows_list(patched)
+        merged = _merge_subset_by_suffix(rows, patched) if patched else rows
+
+        # Fallback: if the targeted patch changed nothing, regenerate the whole
+        # phase and splice in the targeted rows.
+        if (not patched) or _rows_equal_by_suffix(rows, merged):
+            logger.info("%s_REGEN: patch no-op, falling back to full regenerate", spec["name"])
+            fresh = _ensure_rows_list(spec["generate"](state) or [])
+            fresh_subset = _pick_rows_by_suffix(fresh, target_sfx)
+            if fresh_subset:
+                merged = _merge_subset_by_suffix(rows, fresh_subset)
+
+        return {k["rows"]: merged, k["repair"]: rnd + 1}
 
     return regen_node
 
 
-# Create regen nodes via factory
-l1_regen_node = _create_regen_node("L1")
-l2_regen_node = _create_regen_node("L2")
-l3_regen_node = _create_regen_node("L3")
-
-
 # ============================================================================
-#                             PIPELINE CONSTANTS
-# ============================================================================
-MAX_STAGE_REPAIR = 2  # hard stop per stage — prevents infinite repair loops
-
-
-# ============================================================================
-#                                RAG NODES
-# Retrieval-Augmented Generation: load documents once, then build per-stage
-# context by searching the index with stage-appropriate queries.
+#                       HOLISTIC CROSS-PHASE REVIEW
+# After L8, a holistic reviewer checks consistency across the whole chain and
+# routes repair to the EARLIEST faulty phase (architecture doc §7/§8). The
+# execute node patches that phase's targeted rows, then regenerates every
+# downstream phase (invalidate-and-regenerate), bounded by MAX_HOLISTIC_ROUNDS.
 # ============================================================================
 
-def rag_prep_node(state: HazopGraphState):
-    """Load documents and build retrieval index once per run.
+_HOL_FIELDS = (
+    "guideword", "failure_mode", "hazardous_behavior", "potential_harm",
+    "risk_status", "initial_risk", "safety_decision", "ai_safety_goals",
+    "respecifications", "safety_functions", "passive_operational_measures",
+    "residual_status", "evidence", "open_assumptions",
+)
 
-    This keeps RAG LangGraph-native: the index is stored in the graph state
-    and reused by subsequent stage context nodes.
+
+def _holistic_view(state: HazopGraphState) -> List[Dict[str, Any]]:
+    """Build one slim row per L1 row, merging every phase's fields by suffix."""
+    l1 = state.get("rows_l1") or []
+    indices = {
+        ph: {_suffix(str(r.get("row_id"))): r for r in (state.get(f"rows_{ph}") or []) if isinstance(r, dict)}
+        for ph in ("l2", "l3", "l4", "l5", "l6", "l7", "l8")
+    }
+    view: List[Dict[str, Any]] = []
+    for r1 in l1:
+        if not isinstance(r1, dict):
+            continue
+        sfx = _suffix(str(r1.get("row_id")))
+        merged: Dict[str, Any] = {"row_id": r1.get("row_id")}
+        sources = [r1] + [indices[ph].get(sfx, {}) for ph in ("l2", "l3", "l4", "l5", "l6", "l7", "l8")]
+        for src in sources:
+            for f in _HOL_FIELDS:
+                if f in src and src.get(f) not in (None, "", []):
+                    merged[f] = src[f]
+        view.append(merged)
+    return view
+
+
+def holistic_review_node(state: HazopGraphState) -> Dict[str, Any]:
+    rnd = state.get("holistic_round", 0)
+    view = _holistic_view(state)
+    logger.info("=== HOL_REVIEW (round %d): %d rows ===", rnd, len(view))
+    decision = ai_holistic_review(view, [], notes=state.get("notes", "")) or {}
+    ok = (decision.get("decision") or "").upper() == "OK"
+    return {
+        "holistic_ok": ok,
+        "holistic_issues": decision.get("issues") or [],
+        "holistic_round": rnd,
+        "holistic_suggestion": (decision.get("suggestion") or "").strip(),
+        "holistic_scope": (decision.get("scope") or "L1").upper(),
+        "holistic_target_ids": decision.get("target_ids") or _extract_row_ids_from_issues(decision.get("issues") or []),
+    }
+
+
+def patch_and_cascade(
+    state: HazopGraphState,
+    scope: str,
+    target_sfx: List[str],
+    suggestion: str,
+    notes: str = "",
+) -> Dict[str, Any]:
+    """Patch the targeted rows at ``scope`` then regenerate every downstream phase.
+
+    Returns a ``{rows_key: rows}`` dict for the scope phase (if patched) and all
+    phases after it. Used by both the holistic execute node and the GUI adapter so
+    scope-based regeneration shares one cascade implementation. The caller threads
+    these rows back into its own state representation.
     """
-    if not state.get("rag_enabled", False):
-        return {"rag_docs": [], "rag_vec": None, "rag_mat": None,
-                "rag_notes_l1": "", "rag_notes_l2": "", "rag_notes_l3": ""}
-
-    if not (load_documents and build_index and search):
-        # RAG requested but utils unavailable; keep pipeline running.
-        return {"rag_docs": [], "rag_vec": None, "rag_mat": None,
-                "rag_notes_l1": "", "rag_notes_l2": "", "rag_notes_l3": ""}
-
-    paths = [p for p in (state.get("rag_paths") or []) if str(p).strip()]
-    if not paths:
-        return {"rag_docs": [], "rag_vec": None, "rag_mat": None,
-                "rag_notes_l1": "", "rag_notes_l2": "", "rag_notes_l3": ""}
-
-    docs = load_documents(paths)
-    if not docs:
-        logger.warning("RAG enabled but no document chunks loaded from paths: %s", paths)
-    vec, mat = build_index(docs, embedder=state.get("rag_embedder", "local"))
-    return {"rag_docs": docs, "rag_vec": vec, "rag_mat": mat,
-            "rag_notes_l1": "", "rag_notes_l2": "", "rag_notes_l3": ""}
-
-
-def _rag_search_lines(state: HazopGraphState, queries: List[str], *, top_k: int = 2, max_chars: int = 12000) -> str:
-    if not state.get("rag_enabled", False):
-        return ""
-    if not (search and state.get("rag_docs") and state.get("rag_vec") is not None and state.get("rag_mat") is not None):
-        return ""
-
-    embedder = (state.get("rag_embedder") or "local").lower()
-    default_sim = 0.1 if embedder == "local" else 0.25
-    min_sim = state.get("rag_min_sim") or default_sim
-
-    lines: List[str] = []
-    used = 0
-    seen: set[str] = set()
-    for qi, q in enumerate(queries):
-        q = (q or "").strip()
-        if not q or q in seen:
-            continue
-        seen.add(q)
-        hits = search(q, state["rag_vec"], state["rag_mat"], state["rag_docs"], top_k=top_k, min_similarity=min_sim) or []
-        if not hits:
-            continue
-        for i, hit in enumerate(hits):
-            logger.debug("  RAG hit %d (query='%.50s'): %.120s", i + 1, q, hit)
-        # Cap each hit to keep per-query lines manageable
-        max_hit_chars = 400
-        trimmed = [str(h)[:max_hit_chars] for h in hits]
-        joined = " / ".join(trimmed)
-        line = f"Context for '{q}': {joined}"
-        if used + len(line) > max_chars:
-            remaining = sum(1 for qq in queries[qi + 1:]
-                           if (qq or "").strip() and (qq or "").strip() not in seen)
-            if remaining:
-                logger.info("RAG context truncated at %d/%d chars; ~%d queries skipped",
-                            used, max_chars, remaining)
-            break
-        lines.append(line)
-        used += len(line)
-    if lines:
-        logger.info("RAG context: %d/%d queries matched, %d chunks, %d chars",
-                    len(lines), len(seen), sum(l.count(" / ") + 1 for l in lines), used)
-    return "\n".join(lines).strip()
-
-
-def rag_ctx_l1_node(state: HazopGraphState):
-    # Query by function name (best signal before any rows exist)
-    queries = list(state.get("functions") or [])
-    return {"rag_notes_l1": _rag_search_lines(state, queries, top_k=3)}
-
-
-def rag_ctx_l2_node(state: HazopGraphState):
-    # Query by one deviation per function (avoids bias toward first function)
-    rows = state.get("rows_l1") or []
-    seen_fns: set[str] = set()
-    queries: List[str] = []
-    for r in rows:
-        if not isinstance(r, dict):
-            continue
-        fn = r.get("function", "")
-        dev = str(r.get("deviation") or "").strip()
-        if fn not in seen_fns and dev:
-            queries.append(dev)
-            seen_fns.add(fn)
-    if not queries:
-        queries = list(state.get("functions") or [])
-    return {"rag_notes_l2": _rag_search_lines(state, queries, top_k=2)}
-
-
-def rag_ctx_l3_node(state: HazopGraphState):
-    # Query by one cause per function (fallback to deviation)
-    rows = state.get("rows_l2") or []
-    seen_fns: set[str] = set()
-    queries: List[str] = []
-    for r in rows:
-        if not isinstance(r, dict):
-            continue
-        fn = r.get("function", "")
-        text = str(r.get("cause") or r.get("deviation") or "").strip()
-        if fn not in seen_fns and text:
-            queries.append(text)
-            seen_fns.add(fn)
-    if not queries:
-        queries = list(state.get("functions") or [])
-    return {"rag_notes_l3": _rag_search_lines(state, queries, top_k=2)}
-
-# ============================================================================
-#                        L1 NODES — deviation generation
-# Init generates rows, Validate checks Pydantic + coverage, Review asks LLM
-# for quality feedback, Regen patches or regenerates faulty rows.
-# ============================================================================
-
-def l1_init_node(state: HazopGraphState):
-    logger.info("=== L1_INIT: Generating deviations for %d functions ===", len(state.get("functions") or []))
-    # Pass optional notes (e.g., RAG context) to L1 generator.
-    merged_notes = _merge_rag_notes(
-        state.get("notes") or "",
-        state.get("rag_notes_l1") or ""
-    )
-    rows = l1_init_full_coverage(
-        state["functions"],
-        state["guideword_map"],
-        state.get("max_devs_per_gw", 2),
-        merged_notes,
-    ) or []
-    rows = _ensure_rows_list(rows)
-    _ensure_row_ids("L1", rows)
-
-    logger.info("L1_INIT: Generated %d rows", len(rows))
-    return {"rows_l1": rows, "l1_repair_round": 0}
-
-def l1_validate_node(state: HazopGraphState):
-    # Validate L1 rows using Pydantic models.  Convert the validated rows back
-    # into plain dictionaries so the rest of the pipeline operates on a
-    # consistent structure (dicts rather than Pydantic objects).  Without
-    # conversion later nodes would receive a mix of model instances and dicts,
-    # leading to subtle bugs when merging or serialising rows.
-    rows = state["rows_l1"]
-    norm_rows, ok, issues = validate_l1_payload(rows, state["functions"])
-    norm_rows_dicts = _pydantic_to_dicts(norm_rows)
-    logger.info("L1_VALIDATE: ok=%s issues=%d", ok, len(issues))
-    return {"rows_l1": norm_rows_dicts, "l1_ok": ok, "l1_issues": issues}
-
-def l1_reviewer_node(state: HazopGraphState):
-    report = build_validator_report("L1", state.get("l1_issues", []),
-                                    "Re-generate ONLY targeted L1 rows using the single reviewer suggestion.")
-    notes = _rag_notes(state, "rag_notes_l1")
-    decision = l1_to_reviewer(report, state["rows_l1"], notes=notes) or {}
-    return {
-        "l1_suggestion": (decision.get("suggestion") or "").strip(),
-    }
-
-# ============================================================================
-#                        L2 NODES — cause generation
-# Same init → validate → review → regen cycle as L1.
-# ============================================================================
-def l2_init_node(state: HazopGraphState):
-    logger.info("=== L2_INIT: Adding causes to %d L1 rows ===", len(state.get("rows_l1") or []))
-    merged_notes = _merge_rag_notes(
-        state.get("notes") or "",
-        state.get("rag_notes_l2") or ""
-    )
-
-    rows = l2_init_from_l1(state["rows_l1"], notes=merged_notes) or []
-    rows = _ensure_rows_list(rows)
-    _ensure_row_ids("L2", rows)
-
-    expected = len(state.get("rows_l1") or [])
-    logger.info("L2_INIT: Generated %d rows (expected %d)", len(rows), expected)
-    if len(rows) != expected:
-        logger.warning(
-            "L2_INIT: Row count mismatch! Got %d L2 rows from %d L1 rows — some rows may be missing causes.",
-            len(rows), expected,
-        )
-    return {"rows_l2": rows, "l2_repair_round": 0}
-
-def l2_validate_node(state: HazopGraphState):
-    # Validate L2 rows and normalise them to plain dicts.  See l1_validate_node
-    # for rationale.
-    rows = state["rows_l2"]
-    norm_rows, ok, issues = validate_l2_payload(rows)
-    norm_rows_dicts = _pydantic_to_dicts(norm_rows)
-    logger.info("L2_VALIDATE: ok=%s issues=%d", ok, len(issues))
-    return {"rows_l2": norm_rows_dicts, "l2_ok": ok, "l2_issues": issues}
-
-def l2_reviewer_node(state: HazopGraphState):
-    report = build_validator_report("L2", state.get("l2_issues", []),
-                                    "Re-generate ONLY targeted L2 rows using the single reviewer suggestion.")
-    notes = _rag_notes(state, "rag_notes_l2")
-    decision = l2_to_reviewer(report, state["rows_l2"], notes=notes) or {}
-    return {
-        "l2_suggestion": (decision.get("suggestion") or "").strip(),
-    }
-
-# ============================================================================
-#                        L3 NODES — effect + safety triage generation
-# Same init → validate → review → regen cycle as L1/L2.
-# ============================================================================
-def l3_init_node(state: HazopGraphState):
-    logger.info("=== L3_INIT: Adding effects to %d L2 rows ===", len(state.get("rows_l2") or []))
-    merged_notes = _merge_rag_notes(
-        state.get("notes") or "",
-        state.get("rag_notes_l3") or ""
-    )
-
-    rows = l3_init_from_l2(state["rows_l2"], notes=merged_notes) or []
-    rows = _ensure_rows_list(rows)
-    _ensure_row_ids("L3", rows)
-
-    expected = len(state.get("rows_l2") or [])
-    logger.info("L3_INIT: Generated %d rows (expected %d)", len(rows), expected)
-    if len(rows) != expected:
-        logger.warning(
-            "L3_INIT: Row count mismatch! Got %d L3 rows from %d L2 rows — some rows may be missing effects.",
-            len(rows), expected,
-        )
-    missing_effect = sum(1 for r in rows if not str(r.get("effect", "")).strip())
-    logger.debug("L3_INIT: Missing effect fields: %d", missing_effect)
-    for i, r in enumerate(rows[:3]):
-        logger.debug("L3_INIT: Row %d preview: %s", i, r)
-
-    # Do not assign triage here; L3 models should supply the 'potentially_dangerous' field directly.
-    return {"rows_l3": rows, "l3_repair_round": 0}
-
-def l3_validate_node(state: HazopGraphState):
-    rows = state["rows_l3"]
-
-    # Count missing effects before validation.  Use _row_get to handle both
-    # dict and Pydantic rows transparently.
-    missing_pre = sum(1 for r in rows if not str(_row_get(r, "effect") or "").strip())
-    logger.debug("L3_VALIDATE:IN rows=%d missing_effect=%d", len(rows), missing_pre)
-
-    norm_rows, ok, issues = validate_l3_payload(rows)
-
-    # Convert validated rows back into plain dicts.  This ensures state
-    # consistency and prevents downstream code from seeing Pydantic models.
-    norm_rows_dicts = _pydantic_to_dicts(norm_rows)
-
-    missing_post = sum(1 for r in norm_rows_dicts if not str(r.get("effect", "")).strip())
-    logger.debug("L3_VALIDATE:OUT rows=%d ok=%s missing_effect=%d", len(norm_rows_dicts), ok, missing_post)
-    logger.info("L3_VALIDATE: ok=%s issues=%d", ok, len(issues))
-    return {"rows_l3": norm_rows_dicts, "l3_ok": ok, "l3_issues": issues}
-
-def l3_reviewer_node(state: HazopGraphState):
-    logger.debug("L3_REVIEW IN: rows_l3=%d", len(state['rows_l3']))
-    report = build_validator_report("L3", state.get("l3_issues", []),
-                                    "Re-generate ONLY targeted L3 rows using the single reviewer suggestion.")
-    notes = _rag_notes(state, "rag_notes_l3")
-    decision = l3_to_reviewer(report, state["rows_l3"], notes=notes) or {}
-    logger.debug("L3_REVIEW OUT: decision=%s", decision.get('decision'))
-    return {
-        "l3_suggestion": (decision.get("suggestion") or "").strip(),
-    }
-
-# ============================================================================
-#                         HOLISTIC REVIEW & CASCADE REGENERATION
-# After all three stages pass, a holistic reviewer checks cross-row
-# consistency.  If issues are found, cascade functions regenerate the
-# affected rows starting at the scope determined by the reviewer (L1, L2,
-# or L3) and propagate changes downward (e.g. L1→L2→L3).
-# ============================================================================
-# Allow up to two rounds of holistic repairs in addition to the initial review.
-# This accommodates scenarios where multiple groups of inconsistent rows need
-# separate regeneration cycles (e.g., L2 repairs on different row ranges).
-# In this implementation we do not perform an automatic fallback to L1.
-MAX_HOLISTIC_ROUNDS = 3
-
-def holistic_review_node(state: HazopGraphState):
-    """Perform holistic consistency review on the current set of rows.
-
-    On the initial holistic round (round 0) we review all rows.  On subsequent
-    rounds we only review rows that are still considered problematic (i.e.,
-    those in ``state["holistic_target_ids"]``).  This prevents the reviewer
-    from finding new issues in previously accepted rows.  The set of unresolved
-    row IDs is persisted across rounds to control which rows are regenerated
-    in future cycles.
-    """
-    logger.info("=== HOL_REVIEW: Reviewing %d L3 rows (round %d) ===",
-                len(state.get('rows_l3') or []), state.get("holistic_round", 0))
-    logger.debug("HOL_REVIEW IN: rows_l3=%d", len(state['rows_l3']))
-    # Determine which rows to review: on round 0, review all rows; otherwise
-    # review only those rows whose row_id appears in the previously stored
-    # holistic_target_ids.  This freezes rows that have already passed the
-    # holistic check.
-    all_rows: List[Dict[str, Any]] = deepcopy(state.get("rows_l3") or [])
-    prev_targets = state.get("holistic_target_ids") or []
-    round_no = state.get("holistic_round", 0)
-    if round_no == 0 or not prev_targets:
-        rows_for_review = all_rows
-    else:
-        unresolved_set = set(prev_targets)
-        rows_for_review = [r for r in all_rows if str(r.get("row_id")) in unresolved_set]
-
-    # Merge RAG context from all three stages, deduplicating identical lines
-    all_rag_lines: List[str] = []
-    for stage_key in ("rag_notes_l1", "rag_notes_l2", "rag_notes_l3"):
-        text = (state.get(stage_key) or "").strip()
-        if text:
-            all_rag_lines.extend(text.splitlines())
-    seen_rag: set[str] = set()
-    unique_lines: List[str] = []
-    for line in all_rag_lines:
-        stripped = line.strip()
-        if stripped and stripped not in seen_rag:
-            unique_lines.append(stripped)
-            seen_rag.add(stripped)
-    merged_rag = "\n".join(unique_lines)
-    notes = _merge_rag_notes(state.get("notes") or "", merged_rag)
-    decision = {}
-    try:
-        decision = l3_pass_to_reviewer_holistic(rows_for_review, [], notes=notes) or {}
-    except TypeError:
-        decision = l3_pass_to_reviewer_holistic(rows_for_review, notes=notes) or {}
-
-    logger.debug("HOL_REVIEW OUT: decision=%s", decision.get('decision'))
-
-    last_decision = (decision.get("decision") or "").upper()
-    holistic_ok = (last_decision == "OK")
-    logger.info("HOL_REVIEW: decision=%s ok=%s", last_decision, holistic_ok)
-    suggestion = (decision.get("suggestion") or "").strip()
-    scope = (decision.get("scope") or "ALL").upper()
-    issues = decision.get("issues") or []
-    new_target_ids = _extract_row_ids_from_issues(issues)
-
-    # Determine target ids for the next round.  On the first round we simply
-    # use all row ids reported in ``new_target_ids``.  On subsequent rounds
-    # we **do not add new IDs**: only the previously unresolved row IDs are
-    # retained if they still appear in the current ``new_target_ids``.  Any
-    # additional issues discovered after the initial holistic round are
-    # ignored until the original set of problematic rows has been fixed.
-    if round_no == 0:
-        target_ids = new_target_ids
-    else:
-        # Keep only those ids from prev_targets that still appear in new_target_ids
-        target_ids = [rid for rid in prev_targets if rid in new_target_ids]
-
-    return {
-        "holistic_ok": holistic_ok,
-        "holistic_issues": issues if isinstance(issues, list) else [],
-        "holistic_round": round_no,
-        "holistic_suggestion": suggestion,
-        "holistic_scope": scope,
-        "holistic_target_ids": target_ids,
-    }
-
-# --- Cascade functions: regenerate at a given stage and propagate downward ---
-
-def _cascade_l1(
-    state: HazopGraphState,
-    target_suffixes: List[str],
-    suggestion: str,
-) -> Dict[str, Any]:
-    """Regenerate L1 rows and cascade changes to L2 and L3."""
-    fix_hints = [suggestion] if suggestion else []
-    l1_notes = _rag_notes(state, "rag_notes_l1")
-    regenerated = reviewer_to_l1(
-        state["functions"],
-        state["guideword_map"],
-        fix_hints,
-        state.get("max_devs_per_gw", 2),
-        notes=l1_notes,
-    ) or []
-    regenerated = _ensure_rows_list(regenerated)
-    _ensure_row_ids("L1", regenerated)
-
-    current = [_row_to_dict(r) for r in state["rows_l1"]]
-    new_l1 = _merge_full_by_key(
-        current, regenerated, target_suffixes,
-        key_fields=["function", "guideword"],
-    )
-
-    # Cascade to L2
-    l2_notes = _rag_notes(state, "rag_notes_l2")
-    l2_full = l2_init_from_l1(new_l1, notes=l2_notes) or []
-    l2_full = _ensure_rows_list(l2_full)
-    _ensure_row_ids("L2", l2_full)
-    new_l2 = _merge_full_by_key(
-        [_row_to_dict(r) for r in (state["rows_l2"] or [])],
-        l2_full, target_suffixes,
-        key_fields=["function", "guideword"],
-    )
-
-    # Cascade to L3
-    l3_notes = _rag_notes(state, "rag_notes_l3")
-    l3_full = l3_init_from_l2(new_l2, notes=l3_notes) or []
-    l3_full = _ensure_rows_list(l3_full)
-    _ensure_row_ids("L3", l3_full)
-    new_l3 = _merge_full_by_key(
-        [_row_to_dict(r) for r in (state["rows_l3"] or [])],
-        l3_full, target_suffixes,
-        key_fields=["function", "guideword"],
-    )
-
-    return {"rows_l1": new_l1, "rows_l2": new_l2, "rows_l3": new_l3}
-
-
-def _cascade_l2(
-    state: HazopGraphState,
-    target_suffixes: List[str],
-    suggestion: str,
-) -> Dict[str, Any]:
-    """Regenerate L2 rows and cascade changes to L3."""
-    cur_l2 = [_row_to_dict(r) for r in (state["rows_l2"] or [])]
-    new_l2 = cur_l2
-
-    l2_notes = _rag_notes(state, "rag_notes_l2")
-    if target_suffixes:
-        l2_subset = _pick_rows_by_suffix(cur_l2, target_suffixes)
-        row_ids = [str(_row_get(r, "row_id")) for r in l2_subset]
-        row_hints = [{"row_id": rid, "fields": ["cause"], "suggestion": suggestion or ""} for rid in row_ids]
-
-        l2_new = reviewer_patch_l2(l2_subset, row_hints, notes=l2_notes) or []
-        l2_new = _ensure_rows_list(l2_new)
-        _ensure_row_ids("L2", l2_new)
-        l2_new = _pick_rows_by_suffix(l2_new, target_suffixes)
-        new_l2 = _merge_subset_by_suffix(cur_l2, l2_new)
-
-        # Fallback if patch didn't change anything
-        if not l2_new or _rows_equal_by_suffix(cur_l2, new_l2):
-            l2_full = l2_init_from_l1(state["rows_l1"], notes=l2_notes) or []
-            l2_full = _ensure_rows_list(l2_full)
-            _ensure_row_ids("L2", l2_full)
-            new_l2 = _merge_full_by_key(
-                cur_l2, l2_full, target_suffixes, key_fields=["function", "guideword"]
-            )
-
-    # Cascade to L3
-    l3_notes = _rag_notes(state, "rag_notes_l3")
-    l3_full = l3_init_from_l2(new_l2, notes=l3_notes) or []
-    l3_full = _ensure_rows_list(l3_full)
-    _ensure_row_ids("L3", l3_full)
-    new_l3 = _merge_full_by_key(
-        [_row_to_dict(r) for r in (state["rows_l3"] or [])],
-        l3_full, target_suffixes,
-        key_fields=["function", "guideword"]
-    )
-
-    return {"rows_l2": new_l2, "rows_l3": new_l3}
-
-
-def _cascade_l3(
-    state: HazopGraphState,
-    target_suffixes: List[str],
-    suggestion: str,
-) -> Dict[str, Any]:
-    """Regenerate L3 rows only (no cascade)."""
-    if not target_suffixes:
+    scope = (scope or "L1").upper()
+    spec = _SPEC_BY_NAME.get(scope)
+    if spec is None:
         return {}
 
-    cur_l3 = [_row_to_dict(r) for r in (state["rows_l3"] or [])]
-    l3_subset = _pick_rows_by_suffix(cur_l3, target_suffixes)
-    row_ids = [str(_row_get(r, "row_id")) for r in l3_subset]
-    # Include both "effect" and "potentially_dangerous" so the patcher
-    # can update either field as needed.
-    row_hints = [
-        {"row_id": rid, "fields": ["effect", "potentially_dangerous"], "suggestion": suggestion or ""}
-        for rid in row_ids
-    ]
+    idx = next(i for i, s in enumerate(PHASE_SPECS) if s["name"] == scope)
+    sug = (suggestion or "").strip()
 
-    l3_notes = _rag_notes(state, "rag_notes_l3")
-    l3_new = reviewer_patch_l3(l3_subset, row_hints, notes=l3_notes) or []
-    l3_new = _ensure_rows_list(l3_new)
-    _ensure_row_ids("L3", l3_new)
-    l3_new = _pick_rows_by_suffix(l3_new, target_suffixes)
-    new_l3 = _merge_subset_by_suffix(cur_l3, l3_new)
+    s = dict(state)  # working copy threaded through downstream regeneration
+    updates: Dict[str, Any] = {}
 
-    # Fallback if patch didn't change anything
-    if not l3_new or _rows_equal_by_suffix(l3_subset, l3_new):
-        l3_full = l3_init_from_l2(state["rows_l2"], notes=l3_notes) or []
-        l3_full = _ensure_rows_list(l3_full)
-        _ensure_row_ids("L3", l3_full)
-        new_l3 = _merge_full_by_key(
-            cur_l3, l3_full, target_suffixes,
-            key_fields=["function", "guideword", "deviation", "cause"]
-        )
+    # 1) Patch the targeted rows at the scope phase.
+    k = _keys(scope)
+    rows = [_row_to_dict(r) for r in (s.get(k["rows"]) or [])]
+    subset = _pick_rows_by_suffix(rows, target_sfx) if target_sfx else []
+    if subset and sug:
+        hints = [{"row_id": r.get("row_id"), "fields": spec["patch_fields"], "suggestion": sug} for r in subset]
+        patched = _ensure_rows_list(ai_patch(scope, subset, hints, notes=notes) or [])
+        merged = _merge_subset_by_suffix(rows, patched) if patched else rows
+        if spec["pre_validate"]:
+            merged = spec["pre_validate"](merged)
+        s[k["rows"]] = merged
+        updates[k["rows"]] = merged
 
-    return {"rows_l3": new_l3}
+    # 2) Invalidate and regenerate every downstream phase.
+    for ds in PHASE_SPECS[idx + 1:]:
+        dk = _keys(ds["name"])
+        fresh = _ensure_rows_list(ds["generate"](s) or [])
+        if ds["pre_validate"]:
+            fresh = ds["pre_validate"](fresh)
+        s[dk["rows"]] = fresh
+        updates[dk["rows"]] = fresh
 
-
-# Dispatch table for cascade handlers
-_CASCADE_HANDLERS = {
-    "L1": _cascade_l1,
-    "L2": _cascade_l2,
-    "L3": _cascade_l3,
-}
+    logger.info("patch_and_cascade: scope=%s, patched %d rows, regenerated %d downstream phases",
+                scope, len(subset), len(PHASE_SPECS) - idx - 1)
+    return updates
 
 
-def _cascade_from_H_single_suggestion(
-    state: HazopGraphState,
-    H: Literal["L1", "L2", "L3"],
-    target_suffixes: List[str],
-    suggestion: str,
-) -> Dict[str, Any]:
-    """Dispatch cascade regeneration to the appropriate handler based on scope."""
-    handler = _CASCADE_HANDLERS.get(H)
-    if handler:
-        return handler(state, target_suffixes, suggestion)
-    return {}
-
-def holistic_execute_node(state: HazopGraphState):
-    """Regenerate only the unresolved rows identified by the holistic review.
-
-    This node regenerates only the rows whose ``row_id`` values are present in
-    ``state['holistic_target_ids']``.  Rows not in this list are preserved
-    unchanged (i.e., frozen) across holistic rounds.  After regeneration the
-    holistic round counter is incremented.  If the holistic review already
-    reported success, no further work is done.
-    """
-    logger.debug("HOL_EXECUTE IN: rows_l3=%d", len(state['rows_l3']))
-    # If previous holistic review reported OK, skip regeneration.
+def holistic_execute_node(state: HazopGraphState) -> Dict[str, Any]:
+    rnd = state.get("holistic_round", 0)
     if state.get("holistic_ok", False):
-        return {"holistic_round": state.get("holistic_round", 0)}
+        return {"holistic_round": rnd}
 
-    suggestion = state.get("holistic_suggestion", "")
-    scope = state.get("holistic_scope", "ALL")
-    H: Literal["L1","L2","L3"] = _scope_to_highest_stage(scope)
+    scope = (state.get("holistic_scope") or "L1").upper()
+    if _SPEC_BY_NAME.get(scope) is None:
+        return {"holistic_round": rnd + 1}
 
-    # Regenerate only unresolved rows.  If none are marked (which should not
-    # happen when holistic_ok is False), fall back to regenerating all rows.
-    target_ids = state.get("holistic_target_ids") or []
-    if not target_ids:
-        target_ids = [str(r.get("row_id")) for r in (state.get("rows_l3") or []) if r.get("row_id")]
-    target_suffixes = _suffixes_from_row_ids(target_ids)
+    updates = patch_and_cascade(
+        state,
+        scope,
+        _suffixes(state.get("holistic_target_ids") or []),
+        state.get("holistic_suggestion") or "",
+        notes=state.get("notes", ""),
+    )
+    updates["holistic_round"] = rnd + 1
+    return updates
 
-    logger.debug("HOL_EXECUTE: H=%s targets=%s", H, target_suffixes)
-
-    # Always cascade regeneration only on the selected suffixes at the chosen stage.
-    # We do not perform an automatic fallback to L1; stage escalation is determined by the reviewer's scope.
-    cascade_result = _cascade_from_H_single_suggestion(state, H, target_suffixes, suggestion)
-
-    logger.debug("HOL_EXECUTE OUT: rows_l3=%d",
-                 len(cascade_result.get("rows_l3", state.get("rows_l3") or [])))
-
-    return {
-        "rows_l1": cascade_result.get("rows_l1", state.get("rows_l1")),
-        "rows_l2": cascade_result.get("rows_l2", state.get("rows_l2")),
-        "rows_l3": cascade_result.get("rows_l3", state.get("rows_l3")),
-        "holistic_round": state.get("holistic_round", 0) + 1,
-    }
 
 # ============================================================================
 #                            GRAPH DEFINITION
-# Wires all nodes and conditional edges into the LangGraph state machine.
-# Conditional edges after each VALIDATE node decide whether to proceed to the
-# next stage or loop back through REVIEW → REGEN for another repair attempt.
 # ============================================================================
+
 def build_graph() -> StateGraph:
     g = StateGraph(HazopGraphState)
 
-    # RAG
-    g.add_node("RAG_PREP", rag_prep_node)
-    g.add_node("RAG_CTX_L1", rag_ctx_l1_node)
-    g.add_node("RAG_CTX_L2", rag_ctx_l2_node)
-    g.add_node("RAG_CTX_L3", rag_ctx_l3_node)
+    names = [s["name"] for s in PHASE_SPECS]
+    for spec in PHASE_SPECS:
+        n = spec["name"]
+        g.add_node(f"{n}_INIT", _make_init_node(spec))
+        g.add_node(f"{n}_VALIDATE", _make_validate_node(spec))
+        g.add_node(f"{n}_REVIEW", _make_review_node(spec))
+        g.add_node(f"{n}_REGEN", _make_regen_node(spec))
 
-    # L1
-    g.add_node("L1_INIT", l1_init_node)
-    g.add_node("L1_VALIDATE", l1_validate_node)
-    g.add_node("L1_REVIEW", l1_reviewer_node)
-    g.add_node("L1_REGEN", l1_regen_node)
-
-    # L2
-    g.add_node("L2_INIT", l2_init_node)
-    g.add_node("L2_VALIDATE", l2_validate_node)
-    g.add_node("L2_REVIEW", l2_reviewer_node)
-    g.add_node("L2_REGEN", l2_regen_node)
-
-    # L3
-    g.add_node("L3_INIT", l3_init_node)
-    g.add_node("L3_VALIDATE", l3_validate_node)
-    g.add_node("L3_REVIEW", l3_reviewer_node)
-    g.add_node("L3_REGEN", l3_regen_node)
-
-    # Holistic
+    # Holistic review runs after the last phase passes.
     g.add_node("HOL_REVIEW", holistic_review_node)
     g.add_node("HOL_EXECUTE", holistic_execute_node)
 
-    # START
-    g.add_edge(START, "RAG_PREP")
-    g.add_edge("RAG_PREP", "RAG_CTX_L1")
-    g.add_edge("RAG_CTX_L1", "L1_INIT")
+    g.add_edge(START, f"{names[0]}_INIT")
 
-    # L1 edges
-    g.add_edge("L1_INIT", "L1_VALIDATE")
-    def l1_after_validate(state: HazopGraphState) -> str:
-        if state.get("l1_ok"):
-            return "L2_INIT"
-        if state.get("l1_repair_round", 0) >= MAX_STAGE_REPAIR:
-            return "L2_INIT"
-        return "L1_REVIEW"
-    g.add_conditional_edges("L1_VALIDATE", l1_after_validate,
-                            {"L2_INIT": "RAG_CTX_L2", "L1_REVIEW": "L1_REVIEW"})
-    g.add_edge("RAG_CTX_L2", "L2_INIT")
-    g.add_edge("L1_REVIEW", "L1_REGEN")
-    g.add_edge("L1_REGEN", "L1_VALIDATE")
+    for idx, spec in enumerate(PHASE_SPECS):
+        n = spec["name"]
+        k = _keys(n)
+        next_node = f"{names[idx + 1]}_INIT" if idx + 1 < len(names) else "HOL_REVIEW"
 
-    # L2 edges
-    g.add_edge("L2_INIT", "L2_VALIDATE")
-    def l2_after_validate(state: HazopGraphState) -> str:
-        if state.get("l2_ok"):
-            return "L3_INIT"
-        if state.get("l2_repair_round", 0) >= MAX_STAGE_REPAIR:
-            return "L3_INIT"
-        return "L2_REVIEW"
-    g.add_conditional_edges("L2_VALIDATE", l2_after_validate,
-                            {"L3_INIT": "RAG_CTX_L3", "L2_REVIEW": "L2_REVIEW"})
-    g.add_edge("RAG_CTX_L3", "L3_INIT")
-    g.add_edge("L2_REVIEW", "L2_REGEN")
-    g.add_edge("L2_REGEN", "L2_VALIDATE")
+        g.add_edge(f"{n}_INIT", f"{n}_VALIDATE")
 
-    # L3 edges
-    g.add_edge("L3_INIT", "L3_VALIDATE")
-    def l3_after_validate(state: HazopGraphState) -> str:
-        if state.get("l3_ok"):
-            return "HOL_REVIEW"
-        if state.get("l3_repair_round", 0) >= MAX_STAGE_REPAIR:
-            return "HOL_REVIEW"
-        return "L3_REVIEW"
-    g.add_conditional_edges("L3_VALIDATE", l3_after_validate,
-                            {"HOL_REVIEW": "HOL_REVIEW", "L3_REVIEW": "L3_REVIEW"})
-    g.add_edge("L3_REVIEW", "L3_REGEN")
-    g.add_edge("L3_REGEN", "L3_VALIDATE")
+        def _after_validate(state, _k=k, _next=next_node):
+            if state.get(_k["ok"]):
+                return "NEXT"
+            if state.get(_k["repair"], 0) >= MAX_STAGE_REPAIR:
+                return "NEXT"
+            return "REVIEW"
 
-    # Holistic edges
-    def hol_after_review(state: HazopGraphState):
+        g.add_conditional_edges(
+            f"{n}_VALIDATE",
+            _after_validate,
+            {"NEXT": next_node, "REVIEW": f"{n}_REVIEW"},
+        )
+        g.add_edge(f"{n}_REVIEW", f"{n}_REGEN")
+        g.add_edge(f"{n}_REGEN", f"{n}_VALIDATE")
+
+    def _hol_after_review(state):
         if state.get("holistic_ok", False):
-            return END
+            return "END"
         if state.get("holistic_round", 0) >= MAX_HOLISTIC_ROUNDS:
-            return END
-        return "HOL_EXECUTE"
-    g.add_conditional_edges("HOL_REVIEW", hol_after_review,
-                            {"HOL_EXECUTE": "HOL_EXECUTE", END: END})
+            return "END"
+        return "EXEC"
+
+    g.add_conditional_edges("HOL_REVIEW", _hol_after_review, {"EXEC": "HOL_EXECUTE", "END": END})
     g.add_edge("HOL_EXECUTE", "HOL_REVIEW")
 
     return g
 
+
 def build_full_graph() -> StateGraph:
     return build_graph()
 
+
 if __name__ == "__main__":
-    print('Use: python -m src.run_pipeline src/functions.txt --notes "ABS demo" --outdir out --max_devs_per_gw 2')
+    print('Use: python -m src.run_pipeline <context.yaml> --provider gemini --outdir out')

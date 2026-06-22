@@ -1,0 +1,130 @@
+# Class-specific question index (methodology White Paper 1, §5).
+# Keyed by taxonomy class id. These questions focus L1 failure-mode generation on
+# the risks that matter for the component's class. A component with multiple classes
+# applies the union of question sets.
+
+questions:
+  Camera-Input:
+    - "Can the frame be missing, black, frozen, duplicated, partially transmitted, over-compressed, or corrupted?"
+    - "Can dirt, mud, rain, snow, insects, fogging, cracks, glare, shadows, or camera housing damage degrade the image?"
+    - "Can low sun, tunnel transitions, night, LED flicker, headlights, reflections, wet road, or emergency lights hide or create features?"
+    - "Can lens distortion, rolling shutter, vibration, mounting shift, thermal expansion, or calibration drift alter geometry?"
+    - "Can frames arrive late, out of order, with wrong timestamp, variable frame rate, or poor synchronization?"
+    - "Can crop, resize, color conversion, normalization, compression, ISP tuning, or ROI selection remove safety-relevant content?"
+
+  Camera-Segmentation:
+    - "Can sidewalk, shoulder, grass, construction area, opposite lane, tram lane, or pedestrian zone be marked drivable?"
+    - "Can valid road, temporary lane, ramp, narrow passage, or unmarked road be rejected?"
+    - "Can curb, edge, barrier, island, pothole, speed bump, or drop-off be missed or shifted?"
+    - "Can small/thin objects such as poles, cones, chains, strollers, wheelchairs, pets, debris, or open doors disappear?"
+    - "Can temporal mask flicker or lag when the scene changes?"
+    - "Can low-confidence segmentation be consumed as valid?"
+
+  Camera-ObjectDetection:
+    - "Can pedestrians, cyclists, motorcycles, scooters, animals, road workers, trailers, low obstacles, cones, or barriers be missed?"
+    - "Can shadows, signs, reflections, vegetation, ads, markings, or rain artefacts become ghost objects?"
+    - "Can pedestrian/cyclist/motorcycle/scooter/vehicle/static/moving classes be confused?"
+    - "Can bounding box position, size, distance, extent, or yaw be wrong?"
+    - "Can occlusion, truncation, crowding, groups, object emergence, scale, or distance cause missed or duplicated objects?"
+    - "Are confidence scores calibrated and meaningful per class and ODD?"
+
+  Camera-Tracking:
+    - "Can real object tracks fail to start, be deleted too early, persist after disappearance, or duplicate?"
+    - "Can IDs swap between nearby objects or crossing objects?"
+    - "Can velocity, acceleration, heading, intent, or path history be wrong?"
+    - "Does the tracker bridge occlusion safely or hallucinate?"
+    - "Can stale state dominate new evidence or recover too slowly?"
+    - "Is uncertainty propagated to prediction and planning?"
+
+  Lidar:
+    - "Can point clouds be sparse, noisy, missing, duplicated, saturated, reflected, or corrupted?"
+    - "Can rain, fog, snow, dust, spray, black surfaces, glass, mirrors, retroreflectors, or wet road affect returns?"
+    - "Can calibration, mounting, vibration, ego-motion compensation, scan pattern, or time sync fail?"
+    - "Can low, thin, overhanging, transparent, absorbent, or irregular objects be missed?"
+    - "Can ground removal suppress curbs, slopes, ramps, speed bumps, potholes, or obstacles?"
+    - "Can clustering merge, split, ghost, or misdimension objects?"
+
+  Radar:
+    - "Can stationary, slow, crossing, low-RCS, or lateral-moving objects be missed?"
+    - "Can multipath, guardrails, metal structures, tunnels, parked vehicles, or other radars create ghosts?"
+    - "Can Doppler ambiguity or ego-motion compensation cause wrong velocity?"
+    - "Can range, azimuth, elevation, or object extent be wrong?"
+    - "Can weather or clutter mask targets?"
+    - "Are radar frames synchronized with camera/lidar?"
+
+  Ultrasonic:
+    - "Can poles, curbs, children, pets, bicycle wheels, low walls, chains, glass, soft material, or angled surfaces be missed?"
+    - "Can rain, snow, puddles, grass, exhaust, other sensors, or reflections create false echoes?"
+    - "Are blind zones known around bumpers and corners?"
+    - "Is vehicle speed compatible with update rate?"
+    - "Can dirt, ice, bumper deformation, sensor paint, or misalignment degrade readings?"
+
+  SensorFusion:
+    - "What if camera, lidar, radar, ultrasonic, and map disagree?"
+    - "Can ghost evidence from different sources be fused into a false object?"
+    - "Can a real object be rejected because one sensor disagrees?"
+    - "Can calibration drift cause object displacement?"
+    - "Can asynchronous frames combine objects from different times?"
+    - "Can disagreement be converted into overconfidence rather than uncertainty?"
+
+  Planning-Route:
+    - "Can the route leave the approved ODD or use prohibited/closed/unsuitable roads?"
+    - "Can HD map, navigation map, live restrictions, traffic rules, or roadworks data be outdated?"
+    - "Can a wrong destination, stop point, pickup/drop-off zone, or lane-level goal be selected?"
+    - "Can route update or reroute be late?"
+    - "Can the route force an unsafe/illegal maneuver?"
+
+  Planning-Behavior:
+    - "Can right-of-way, yield, stop, crosswalk, merge, roundabout, or emergency vehicle handling be wrong?"
+    - "Can pedestrian/cyclist/vehicle intent be mispredicted?"
+    - "Can gap acceptance be too small or overly timid?"
+    - "Can behavior oscillate between yield/go/stop/lane-change?"
+    - "Can roadworks, police direction, blocked lane, hand gestures, or unprotected turns be mishandled?"
+
+  Planning-Trajectory:
+    - "Can the trajectory intersect an object, predicted path, curb, barrier, oncoming lane, sidewalk, or low obstacle?"
+    - "Is the trajectory feasible for vehicle limits, friction, slope, payload, braking distance, and actuator limits?"
+    - "Can comfort smoothing delay emergency action?"
+    - "Are speed, acceleration, jerk, lateral acceleration, steering angle, and stopping distance respected?"
+    - "Are object, prediction, and localization uncertainties included?"
+
+  Control-Command:
+    - "Can a steering/throttle/brake command have wrong magnitude, sign, unit, coordinate frame, or scaling?"
+    - "Can commands be late, repeated, skipped, reordered, or generated from a stale trajectory?"
+    - "Can commands exceed actuator limits or be clipped silently?"
+    - "Can the AI command conflict with the safety controller, driver input, ESC, ABS, or fallback controller?"
+    - "Can rounding, fixed-point conversion, accelerator differences, or non-bit-exactness materially change output?"
+
+  Control-Dynamics:
+    - "Is the learned or model-based controller valid for payload, tires, friction, slope, wind, battery, brake temperature?"
+    - "Can model mismatch, overfitting, oscillation, overshoot, instability, or delayed correction occur?"
+    - "Is low-friction road handled: ice, wet leaves, gravel, snow, mud?"
+    - "Are yaw rate, slip angle, speed, acceleration, and wheel speed reliable?"
+
+  Control-Braking:
+    - "Can braking be absent, late, insufficient, excessive, or unintended?"
+    - "Is stopping distance computed with friction, slope, load, tire state, delay?"
+    - "Does AI braking conflict with AEB, ABS, ESC, or regenerative braking?"
+    - "Can jerk limits or comfort filters delay safety braking?"
+    - "Could false braking create secondary risk?"
+
+  Control-Acceleration:
+    - "Can acceleration occur when stop/yield/brake is required?"
+    - "Can acceleration be too high, too low, delayed, oscillatory, or sustained?"
+    - "Is low-speed creep safe near pedestrians, crossings, parking, stations?"
+    - "Can acceleration reduce safety margin during cut-in or merge?"
+    - "Can throttle/brake sign, torque request, or regen blending be wrong?"
+
+  Localization-HDMap:
+    - "Can lane geometry, signs, signals, speed limits, crosswalks, curbs, stop lines, construction zones be outdated or wrong?"
+    - "Are ODD boundaries, geofences, no-go zones, depot/station areas represented?"
+    - "Can the vehicle match to the wrong lane, road level, parallel road, tunnel, bridge, or parking lane?"
+    - "Can a map update be delayed, partial, corrupted, incompatible, or unverified?"
+    - "Can wrong priority, lane direction, turn restriction, or pedestrian area be encoded?"
+
+  Localization-PoseEstimation:
+    - "Can pose drift, jump, bias, or covariance underestimation occur?"
+    - "Can yaw, pitch, roll, heading, or lane-relative pose be wrong?"
+    - "What happens with GNSS outage, multipath, tunnel, urban canyon, wheel slip, IMU drift, or localization failure?"
+    - "Is the pose timestamp aligned with perception/planning/control?"
+    - "Can the pose be globally plausible but wrong relative to lane/map?"

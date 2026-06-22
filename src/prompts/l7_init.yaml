@@ -1,0 +1,45 @@
+title: AI_HAZOP_L7_RESIDUAL_RISK
+inputs:
+  - rows_prev_json
+  - risk_scales_json
+  - mem_target
+instructions: |
+  You receive AI-HAZOP-8800 rows that carry the INITIAL risk factor levels (E, PF, PND, PNM, S) and the
+  proposed measures (respecifications, safety_functions, passive_operational_measures).
+
+  TASK: For EACH row, estimate the RESIDUAL risk assuming the proposed measures are implemented. Select
+  ONE ORDINAL LEVEL for each factor, strictly from "risk_scales", reflecting each measure's expected
+  effect (e.g. a respecification that improves recall lowers PF; a safety function that detects the
+  failure lowers PND; conservative-behavior safety functions lower PNM; an ODD restriction lowers E or S).
+  A residual level must be the same as or LOWER (less risky) than the corresponding initial level — never
+  higher. Provide a one-sentence residual_rationale linking measures to the reduced factors.
+
+  Do NOT compute the numeric residual — the system computes residual R from your chosen levels and
+  compares it to the MEM target ("mem_target").
+
+  Echo each row's "row_id" exactly. Output ONLY the new fields plus row_id.
+
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, residual_E, residual_PF, residual_PND, residual_PNM, residual_S, residual_rationale]
+    properties:
+      row_id: { type: string }
+      residual_E: { type: string }
+      residual_PF: { type: string }
+      residual_PND: { type: string }
+      residual_PNM: { type: string }
+      residual_S: { type: string }
+      residual_rationale: { type: string }
+constraints: |
+  - Output JSON ONLY: a top-level JSON ARRAY of objects, one per input row, SAME order and length.
+  - residual_E/PF/PND/PNM/S MUST each be one of the allowed ordinal labels for that factor.
+  - Residual levels must be at or below the corresponding initial level (never riskier).
+  - Do NOT output numeric values and do NOT compute the residual product. Do not use the ':' character.
+payload_template: |
+  {
+    "rows": {{rows_prev_json}},
+    "risk_scales": {{risk_scales_json}},
+    "mem_target": {{mem_target}}
+  }

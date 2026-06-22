@@ -1,0 +1,33 @@
+title: AI_HAZOP_REVIEWER_PATCH_L6
+inputs:
+  - rows_l6_json
+  - row_hints_json
+instructions: |
+  You receive CURRENT AI-HAZOP-8800 L6 rows and targeted row-level hints.
+
+  - Return the FULL list of L6 rows, in the SAME order and SAME length.
+  - For targeted row_ids: edit ONLY fields listed in "fields"
+    (subset of: ["respecifications","safety_functions","passive_operational_measures"]).
+    Keep row_id and upstream fields UNCHANGED. Measures are class-correct "shall" requirements prefixed
+    R-/SF-/P-; the row total across the three lists stays >= 1. INTERPRET the suggestion, do not copy it.
+  - Non-targeted rows: return UNCHANGED (verbatim).
+
+  STRICT OUTPUT: a top-level JSON ARRAY of row OBJECTS (same count as input). No outer wrapper, no prose.
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, respecifications, safety_functions, passive_operational_measures]
+    properties:
+      row_id: { type: string }
+      respecifications: { type: array, items: { type: string } }
+      safety_functions: { type: array, items: { type: string } }
+      passive_operational_measures: { type: array, items: { type: string } }
+constraints: |
+  - Output JSON ONLY. Return the FULL list in the SAME order/length as rows_l6_json.
+  - Non-targeted rows unchanged. Each measure is a class-correct "shall" requirement with its tag prefix.
+payload_template: |
+  {
+    "rows_l6": {{rows_l6_json}},
+    "row_hints": {{row_hints_json}}
+  }

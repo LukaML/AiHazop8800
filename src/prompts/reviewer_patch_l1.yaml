@@ -1,72 +1,41 @@
-title: REVIEWER_PATCH_L1_TARGETED
+title: AI_HAZOP_REVIEWER_PATCH_L1
 inputs:
   - rows_l1_json
   - row_hints_json
 instructions: |
-  You receive CURRENT L1 rows and targeted row-level hints.
+  You receive CURRENT AI-HAZOP-8800 L1 rows and targeted row-level hints.
 
   Your job:
   - Return the FULL list of L1 rows, in the SAME order and SAME length.
   - For any row whose "row_id" appears in row_hints_json:
-      * Edit ONLY the fields listed in that hint's "fields" (subset of: ["deviation","applicability_score","applicability_note"])
-      * Keep "row_id", "function", and "guideword" UNCHANGED.
-      * Ensure function → guideword → deviation is coherent and technical.
+      * Edit ONLY the fields listed in that hint's "fields" (subset of: ["failure_mode"]).
+      * Keep "row_id", "guideword", and all context fields (component, aspect, ODD, scenario) UNCHANGED.
+      * Ensure guideword → failure_mode is coherent, technical, and grounded in the row's scenario/ODD.
   - For any row NOT mentioned in row_hints_json: return it UNCHANGED (verbatim).
 
   Style & content rules:
-  - CRITICAL: The "suggestion" field contains USER GUIDANCE about what to improve.
-    * DO NOT copy the suggestion text into the deviation field.
-    * Instead, INTERPRET the suggestion and write NEW technical content.
-    * The output text MUST NOT match the suggestion verbatim.
-    * Example - If suggestion is "make it about valve failure":
-      - WRONG: "make it about valve failure" (copied verbatim)
-      - RIGHT: "The inlet isolation valve fails to open, preventing flow initiation."
-    * Example - If suggestion is "mention sensor drift":
-      - WRONG: "mention sensor drift"
-      - RIGHT: "The temperature sensor exhibits gradual drift, causing readings to deviate from actual values."
-  - Write domain-specific, technical text only (concise, component/signal-level).
-  - If a hint is vague, infer a plausible concrete value consistent with the row.
-  - Do NOT enforce cross-row uniqueness; similar/identical phrases across rows are allowed.
+  - CRITICAL: the "suggestion" field is USER GUIDANCE about what to improve.
+    DO NOT copy the suggestion text into failure_mode. INTERPRET it and write NEW technical content.
+  - failure_mode is a component-level deviation (one technical sentence), NOT a vehicle-level consequence.
+  - If a hint is vague, infer a plausible concrete failure mode consistent with the guideword and component.
 
-  - The 'deviation' field **must not** include the cause or failure mechanism. It
-    should describe only what deviates from the intended function (i.e., the
-    observed behaviour), without mentioning why it happens or which component
-    is faulty.
-
-  If additional context (notes or RAG material) is appended below, use it to
-  ground your corrections in the described domain:
-  - Prefer component names and signal names from the context.
-  - Use parameter ranges and operating conditions from the context.
-  - Match domain-specific terminology from the context.
-  Do not copy context verbatim.
-
-  STRICT OUTPUT INSTRUCTION:
-  Output a top-level JSON ARRAY of row OBJECTS (same count as input subset).
-  Do not wrap in an outer object. Do not output prose. Use standard JSON.
+  STRICT OUTPUT: a top-level JSON ARRAY of row OBJECTS (same count as input). No outer wrapper, no prose.
 output_schema: |
   type: array
   items:
     type: object
-    required: [row_id, function, guideword, deviation]
+    required: [row_id, guideword, failure_mode]
     properties:
       row_id: { type: string }
-      function: { type: string }
       guideword: { type: string }
-      deviation: { type: string }
+      failure_mode: { type: string }
 constraints: |
-  - Output JSON ONLY (an array of rows).
-  - Return the FULL list in the SAME order/length as rows_l1_json.
-  - Non-targeted rows must be byte-for-byte unchanged.
-  - Edit ONLY the fields listed for the targeted row_id(s).
+  - Output JSON ONLY (an array of rows). Return the FULL list in the SAME order/length as rows_l1_json.
+  - Non-targeted rows must be unchanged. Edit ONLY the listed fields for the targeted row_id(s).
+  - failure_mode must match the guideword and stay component-level. Never use the ':' character.
+  - Ban vague words (failure, issue, error) unless made specific.
   - Forbidden meta phrases inside fields: "ensure", "make sure", "provide", "be specific",
-    "value error", "field must not be empty", "placeholder", "nominal", "normal",
-    "no change", "unchanged".
-  - Deviation should be 8–16 words; concise and technical.
-  - Ban vague words unless made specific: malfunction, failure, issue, error.
-  - Guideword semantics must be reflected in deviation: no=complete absence, more=quantitative excess, less=quantitative deficiency, reverse=logical/physical inversion, early=earlier than intended, late=later than intended, before=out-of-sequence before prerequisite, after=out-of-sequence after needed, as well as=unintended additional behavior, part of=incomplete execution, other than=unintended different behavior.
-  - Deviation must reference a concrete physical or logical parameter change (pressure, torque, speed, flow rate, signal timing, actuation state).
-  - Ban in deviation: "incorrect operation", "abnormal behavior", "improper functioning", "unexpected response".
-  - For braking-related "reverse": deviation must describe control-logic or signal-polarity inversion, not physically impossible direction reversal.
+    "placeholder", "nominal", "no change", "unchanged".
 payload_template: |
   {
     "rows_l1": {{rows_l1_json}},

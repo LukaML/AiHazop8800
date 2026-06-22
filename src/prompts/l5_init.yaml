@@ -1,0 +1,34 @@
+title: AI_HAZOP_L5_SAFETY_GOALS
+inputs:
+  - rows_prev_json
+instructions: |
+  You receive AI-HAZOP-8800 rows whose risk was judged NOT acceptable (safety_decision is one of
+  IMPROVE, RESTRICT, INVESTIGATE). Each row holds the failure_mode, hazardous_behavior, potential_harm,
+  the risk factors, and the safety_decision.
+
+  TASK: For EACH row, formulate 1–3 AI Safety Goals — high-level, technology-neutral objectives that,
+  if met, would prevent or control the hazardous behavior. A safety goal states WHAT must be achieved,
+  not HOW (the "how" is L6 measures). Phrase each goal as a single clause, e.g.
+  "Ensure a cyclist behind an occlusion is never treated as absent when observability is insufficient."
+
+  Keep goals consistent with the safety_decision (IMPROVE → goals about detection/behavior quality;
+  RESTRICT → goals about bounding exposure/severity; INVESTIGATE → goals about establishing evidence).
+
+  Echo each row's "row_id" exactly. Output ONLY row_id and the goals list.
+
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, ai_safety_goals]
+    properties:
+      row_id: { type: string }
+      ai_safety_goals: { type: array, items: { type: string } }
+constraints: |
+  - Output JSON ONLY: a top-level JSON ARRAY of objects, one per input row, SAME order and length.
+  - ai_safety_goals is a non-empty array of 1–3 short goal strings (objectives, not implementations).
+  - Do not use the ':' character inside a goal. Ban vague words unless made specific.
+payload_template: |
+  {
+    "rows": {{rows_prev_json}}
+  }

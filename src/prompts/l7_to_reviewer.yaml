@@ -1,0 +1,30 @@
+title: "AI-HAZOP L7 reviewer"
+inputs:
+  - validator_report
+  - rows_l7_json
+instructions: |
+  Review AI-HAZOP-8800 L7 residual-risk rows. Each holds the initial factor levels (E, PF, PND, PNM, S),
+  the proposed measures, the chosen residual levels (residual_E … residual_S), and a code-computed
+  residual_risk and residual_status.
+
+  Flag rows where:
+    - a residual level is HIGHER (riskier) than the corresponding initial level,
+    - a factor is lowered without a measure that plausibly reduces it (e.g. residual_PND dropped with no
+      detection/monitor safety function),
+    - residual_rationale does not link the measures to the reduced factors.
+
+  Do NOT recompute the numeric residual (the code owns it). Keep row_id and upstream fields unchanged.
+
+  Output policy:
+  - All fine: {"decision":"OK","scope":"L7","issues":[],"suggestions":[],"suggestions_by_row":[]}
+  - Otherwise: {"decision":"RETURN", ...} with >=1 items in suggestions_by_row, each like
+    {"row_id":"L7-2","fields":["residual_PND","residual_rationale"],"problem":"...","suggestion":"..."}
+payload_template: |
+  {"report": {{validator_report}}, "rows": {{rows_l7_json}}}
+output_schema: |
+  {"decision":"OK|RETURN|ESCALATE","scope":"L7","issues":["..."],"suggestions":["..."],
+   "suggestions_by_row":[{"row_id":"L7-2","fields":["residual_PND"],"problem":"...","suggestion":"..."}]}
+constraints: |
+  - When decision="RETURN": suggestions_by_row length MUST be >=1.
+  - Keep row_id and upstream fields unchanged. Residual levels must be at or below initial levels.
+  - Suggested residual levels MUST be valid ordinal labels. Do not use the ':' character.

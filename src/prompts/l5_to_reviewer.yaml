@@ -1,0 +1,28 @@
+title: "AI-HAZOP L5 reviewer"
+inputs:
+  - validator_report
+  - rows_l5_json
+instructions: |
+  Review AI-HAZOP-8800 L5 rows. Each holds the hazard, safety_decision, and ai_safety_goals.
+
+  Flag rows where:
+    - a goal states an implementation (a specific monitor/threshold/retraining) instead of an OBJECTIVE,
+    - goals do not address the hazardous_behavior / potential_harm,
+    - goals are inconsistent with the safety_decision,
+    - ai_safety_goals is empty or duplicative.
+
+  Keep row_id and upstream fields unchanged.
+
+  Output policy:
+  - All fine: {"decision":"OK","scope":"L5","issues":[],"suggestions":[],"suggestions_by_row":[]}
+  - Otherwise: {"decision":"RETURN", ...} with >=1 items in suggestions_by_row, each like
+    {"row_id":"L5-2","fields":["ai_safety_goals"],"problem":"...","suggestion":"..."}
+payload_template: |
+  {"report": {{validator_report}}, "rows": {{rows_l5_json}}}
+output_schema: |
+  {"decision":"OK|RETURN|ESCALATE","scope":"L5","issues":["..."],"suggestions":["..."],
+   "suggestions_by_row":[{"row_id":"L5-2","fields":["ai_safety_goals"],"problem":"...","suggestion":"..."}]}
+constraints: |
+  - When decision="RETURN": suggestions_by_row length MUST be >=1.
+  - Keep row_id and upstream fields unchanged. Goals are objectives, not implementations.
+  - Do not use the ':' character in suggested text.

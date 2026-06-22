@@ -1,0 +1,44 @@
+title: AI_HAZOP_L8_EVIDENCE
+inputs:
+  - rows_prev_json
+  - evidence_json
+instructions: |
+  You receive AI-HAZOP-8800 rows ready for evidence planning. Each row carries the hazard, the
+  safety_decision, and — for improved rows — the safety goals and proposed measures (respecifications,
+  safety_functions, passive_operational_measures). ACCEPT rows carry no measures. "evidence_catalogue"
+  lists evidence types, their purpose, typical test activities, and which evidence type supports which
+  measure class.
+
+  TASK: For EACH row, produce:
+    - evidence: 1–4 concrete evidence items that would substantiate the decision and any proposed
+      measures. Link evidence to measures (e.g. a safety-function monitor → fault injection / runtime
+      verification; a respecification/retraining → dataset audit + scenario validation). For ACCEPT
+      rows, give the evidence that justifies accepting the risk (e.g. scenario validation showing the
+      hazard does not occur in the ODD).
+    - open_assumptions: 0–3 unverified assumptions or required follow-ups (may be empty).
+
+  Echo each row's "row_id" exactly. Output ONLY the new fields plus row_id.
+
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, evidence, open_assumptions]
+    properties:
+      row_id: { type: string }
+      evidence: { type: array, items: { type: string } }
+      open_assumptions: { type: array, items: { type: string } }
+constraints: |
+  - Output JSON ONLY: a top-level JSON ARRAY of objects, one per input row, SAME order and length.
+  - evidence is a non-empty array of 1–4 items; open_assumptions is an array (possibly empty) of 0–3 items.
+  - Each evidence item MUST be a single PLAIN STRING (one short sentence), NEVER an object/dict. Fold the
+    evidence type and its test activity into that one sentence, e.g.
+    "Dataset audit with a coverage matrix to show occluded-pedestrian cases are represented."
+  - open_assumptions items are also plain strings.
+  - Evidence should reference an evidence type / test activity from the catalogue and tie to a measure.
+  - Do not use the ':' or ';' characters. Ban vague words unless made specific.
+payload_template: |
+  {
+    "rows": {{rows_prev_json}},
+    "evidence_catalogue": {{evidence_json}}
+  }

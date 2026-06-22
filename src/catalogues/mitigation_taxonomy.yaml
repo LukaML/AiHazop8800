@@ -1,0 +1,40 @@
+# Mitigation taxonomy (methodology White Paper 1, §8).
+# L6 allocates measures into these three classes (+ combined). Measures are written
+# in requirement style, e.g. "SF-001: The system shall ...".
+
+classes:
+  - id: Respecification
+    prefix: R
+    definition: "Change the AI function, data, model, algorithm, interface, or performance contract so the hazardous failure is less likely or less safety-relevant."
+    primary_risk_factor: "PF (sometimes PNM)"
+    examples: "Improve recall, add VRU super-class, modify thresholds, add uncertainty output, change INT count to a richer safety contract, retrain with ODD slices, remove shortcut learning."
+  - id: SafetyFunction
+    prefix: SF
+    definition: "Separated or sufficiently independent monitor/control mechanism that detects the failure, prevents propagation, or transitions to safe operation."
+    primary_risk_factor: "PND and PNM"
+    examples: "Freshness watchdog, timestamp monitor, OOD detector, cross-sensor consistency, safety envelope, independent emergency braking, fallback to minimal risk condition."
+  - id: PassiveOperational
+    prefix: P
+    definition: "Operational controls and supporting processes that reduce exposure or maintain assumptions."
+    primary_risk_factor: "E (sometimes PF or S)"
+    examples: "ODD restriction, route restriction, weather restriction, speed limit, maintenance, calibration process, camera cleaning, operator training, field monitoring."
+  - id: Combined
+    prefix: C
+    definition: "Planned combination of the above where a single measure is insufficient."
+    primary_risk_factor: "PF, PND, PNM, E, S"
+    examples: "Improve model, monitor uncertainty, restrict unsupported ODD, reduce speed, collect field data, update safety case."
+
+# General measures per discovered hazard family (§9), as R/SF/P hints for L6.
+general_measures:
+  missing_false_negative: "R: improve training data and recall; respecify conservative absence semantics. SF: absence-of-evidence monitor, cross-sensor confirmation, conflict-zone caution. P: restrict ODD where detection is unsupported."
+  undercount_merged: "R: group-aware model, instance separation, NMS tuning, extended-object representation. SF: uncertain group treated as extended VRU/obstacle area. P: speed limits in dense VRU areas."
+  overcount_false_positive: "R: duplicate suppression, hard-negative mining, better postprocessing. SF: require spatial conflict before harsh maneuver; comfort/safety arbitration. P: monitor nuisance braking rate."
+  wrong_class: "R: confusion-matrix-driven retraining, VRU super-class, taxonomy change. SF: uncertain VRU classification triggers conservative behavior. P: restrict unsupported object types/regions."
+  late_output: "R: optimize model, reduce computational load, define latency budget. SF: latency watchdog, stale-data invalidation, speed reduction when timing margin is insufficient. P: speed/ODD restriction."
+  frozen_stale: "R: architecture avoids stale reuse. SF: timestamp, heartbeat, frozen-frame, sequence counter, watchdog. P: maintenance and logging review."
+  flickering_instability: "R: temporal smoothing with safety-preserving semantics, hysteresis, stable thresholds. SF: instability flag, conservative mode on oscillation. P: field monitoring for unstable routes/slices."
+  corruption_invalid: "R: robust interface schema and data contracts. SF: type/range/NaN/Inf/overflow checks and safe rejection. P: software configuration management."
+  overconfident_wrong: "R: confidence calibration, OOD-aware training, uncertainty outputs. SF: OOD detector and independent evidence requirement. P: field mining of high-confidence errors."
+  dataset_odd_gap: "R: ODD-slice dataset requirements and balanced validation. SF: ODD validity monitor and conservative mode in unsupported slices. P: operational restriction and field data collection."
+  valid_but_unsafe: "R: replace unsafe simple output with a safety contract including freshness, confidence, uncertainty, status, associated objects. SF: downstream misuse monitor. P: architecture review."
+  unsafe_fallback: "R: respecify fallback strategy and interface. SF: controlled transition to minimal risk condition. P: operator procedure and ODD restriction."

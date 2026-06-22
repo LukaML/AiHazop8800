@@ -1,0 +1,49 @@
+# Illustrative risk model (methodology White Paper 1, §7.1).
+#   R = E x PF x PND x PNM x S
+# The LLM selects an ordinal LEVEL for each factor from the scales below; the
+# CODE (src/risk_model.py) maps the level to its numeric value and computes R.
+# Numeric values are calibrated against the worked cyclist examples in §14.
+
+formula: "R = E * PF * PND * PNM * S"
+
+factors:
+  E:
+    description: "Exposure to the scenario/function per person-year. Reduced by ODD/speed/route restriction, geofence, operating hours."
+    levels:
+      very_low: 0.001
+      low: 0.01
+      medium: 0.03
+      high: 0.1
+      very_high: 0.3
+  PF:
+    description: "Probability the AI-related failure mode occurs in that scenario. Reduced by better data, model, architecture, preprocessing, calibration, validation."
+    levels:
+      very_low: 0.0001
+      low: 0.0005
+      medium: 0.001
+      high: 0.01
+      very_high: 0.1
+  PND:
+    description: "Probability the failure is not detected. Reduced by monitors, consistency checks, OOD detection, uncertainty calibration, freshness checks."
+    levels:
+      very_low: 0.1
+      low: 0.2
+      medium: 0.4
+      high: 0.6
+      very_high: 0.8
+  PNM:
+    description: "Probability no mitigation prevents harm after failure. Reduced by fallback, conservative behavior, braking, speed reduction, safety envelope, independent safety controller."
+    levels:
+      very_low: 0.1
+      low: 0.2
+      medium: 0.4
+      high: 0.6
+      very_high: 0.8
+  S:
+    description: "Fatality-equivalent severity. Reduced by speed limitation, physical separation, operational design, safe stop, external protection."
+    levels:
+      negligible: 0.01
+      minor: 0.1
+      moderate: 0.3
+      serious: 0.6
+      fatal: 1.0

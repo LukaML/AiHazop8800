@@ -1,0 +1,102 @@
+# AI-HAZOP-8800 generic guideword catalogue (methodology White Paper 1, §4).
+# Each guideword triggers systematic deviation thinking about an AI component aspect.
+# `enabled` selects the default working set for a run (kept small to bound cost);
+# the CLI can override with --guidewords all  or  --guidewords no,less,wrong,...
+#
+# The `id` is the stable key used in row data and prompts. `name` is the human label.
+
+enabled:
+  - "no"
+  - more
+  - less
+  - wrong
+  - late
+  - frozen
+  - inconsistent
+  - uncertain_but_confident
+
+guidewords:
+  - id: "no"
+    name: "No / Missing"
+    meaning: "Expected signal or output absent."
+    ai_examples: "No object, no mask, no command, no confidence, no internal-state update."
+  - id: more
+    name: "More"
+    meaning: "Quantity, magnitude, confidence, or effect too high."
+    ai_examples: "Too many detections, excessive braking, over-segmentation, high false positives."
+  - id: less
+    name: "Less"
+    meaning: "Quantity, magnitude, confidence, or effect too low."
+    ai_examples: "Undercount, weak brake, small object extent, low recall."
+  - id: wrong
+    name: "Wrong"
+    meaning: "Incorrect semantic, numeric, spatial, temporal, or logical value."
+    ai_examples: "Wrong class, wrong lane, wrong object velocity, wrong command sign."
+  - id: late
+    name: "Late"
+    meaning: "Output arrives after a safety-relevant deadline."
+    ai_examples: "Delayed pedestrian detection, stale pose, late braking command."
+  - id: early
+    name: "Early"
+    meaning: "Output/action occurs too soon or prematurely."
+    ai_examples: "Premature lane change, premature braking, early deletion of track."
+  - id: intermittent
+    name: "Intermittent"
+    meaning: "Output alternates or flickers."
+    ai_examples: "0/1 cyclist count flicker, track lost/reappearing."
+  - id: frozen
+    name: "Frozen / Stale"
+    meaning: "Old output reused as current."
+    ai_examples: "Frozen frame, stale object list, unchanged internal state."
+  - id: corrupted
+    name: "Corrupted"
+    meaning: "Data value invalid or damaged."
+    ai_examples: "NaN, Inf, overflow, negative count, invalid tensor, wrong serialization."
+  - id: inverted
+    name: "Inverted"
+    meaning: "Meaning, sign, side, direction, or mapping reversed."
+    ai_examples: "Left/right swap, brake/accel inversion, near/far swap."
+  - id: misordered
+    name: "Misordered"
+    meaning: "Order, sequence, lifecycle, or time alignment wrong."
+    ai_examples: "Out-of-order frames, old route segment, wrong track history."
+  - id: inconsistent
+    name: "Inconsistent"
+    meaning: "Contradicts other data or physical plausibility."
+    ai_examples: "Count says zero but box exists; map and perception disagree."
+  - id: overgeneralized
+    name: "Overgeneralized"
+    meaning: "Model applies a learned pattern too broadly."
+    ai_examples: "Classifies an unusual object as a known class with high confidence."
+  - id: overfitted
+    name: "Overfitted"
+    meaning: "Good benchmark behavior but poor deployment generalization."
+    ai_examples: "Fails on new country, route, sensor, lighting, infrastructure."
+  - id: biased
+    name: "Biased"
+    meaning: "Performance differs across ODD slices, object types, locations, or groups."
+    ai_examples: "Poor detection of cargo bikes, children, winter clothing, night cyclists."
+  - id: uncertain_but_confident
+    name: "Uncertain but confident"
+    meaning: "High confidence despite ambiguity or unknown input."
+    ai_examples: "High-confidence false negative or false positive."
+  - id: certain_but_unstable
+    name: "Certain but unstable"
+    meaning: "High confidence but changing output."
+    ai_examples: "Alternating class labels with high confidence."
+  - id: resource_limited
+    name: "Resource-limited"
+    meaning: "Runtime resources affect AI quality or timing."
+    ai_examples: "GPU load causes skipped frames or longer inference."
+  - id: unmonitored
+    name: "Unmonitored"
+    meaning: "Failure not detected by a safety mechanism."
+    ai_examples: "No freshness, range, confidence, or OOD monitor."
+  - id: unsafe_fallback
+    name: "Unsafe fallback"
+    meaning: "Degradation response creates another hazard."
+    ai_examples: "Sudden stop in traffic, feature turns off without a safe transition."
+  - id: valid_but_unsafe
+    name: "Valid-but-unsafe"
+    meaning: "Interface value passes checks but is semantically unsafe."
+    ai_examples: "Count alone used without position, velocity, uncertainty, or freshness."

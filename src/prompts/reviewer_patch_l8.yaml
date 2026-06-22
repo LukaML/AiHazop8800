@@ -1,0 +1,32 @@
+title: AI_HAZOP_REVIEWER_PATCH_L8
+inputs:
+  - rows_l8_json
+  - row_hints_json
+instructions: |
+  You receive CURRENT AI-HAZOP-8800 L8 rows and targeted row-level hints.
+
+  - Return the FULL list of L8 rows, in the SAME order and SAME length.
+  - For targeted row_ids: edit ONLY fields listed in "fields" (subset of: ["evidence","open_assumptions"]).
+    evidence stays a non-empty array of 1–4 items tied to the row's measures/decision; open_assumptions is
+    an array (possibly empty). Keep row_id and upstream fields UNCHANGED. INTERPRET the suggestion, do not
+    copy it verbatim.
+  - Non-targeted rows: return UNCHANGED (verbatim).
+
+  STRICT OUTPUT: a top-level JSON ARRAY of row OBJECTS (same count as input). No outer wrapper, no prose.
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, evidence, open_assumptions]
+    properties:
+      row_id: { type: string }
+      evidence: { type: array, items: { type: string } }
+      open_assumptions: { type: array, items: { type: string } }
+constraints: |
+  - Output JSON ONLY. Return the FULL list in the SAME order/length as rows_l8_json.
+  - Non-targeted rows unchanged. evidence non-empty and tied to measures/decision. Do not use the ':' character.
+payload_template: |
+  {
+    "rows_l8": {{rows_l8_json}},
+    "row_hints": {{row_hints_json}}
+  }

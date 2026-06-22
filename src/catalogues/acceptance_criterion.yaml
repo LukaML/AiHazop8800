@@ -1,0 +1,24 @@
+# Risk acceptance criterion (methodology White Paper 1, §7.2 / §7.3).
+# AI-HAZOP-8800 does not prescribe one universal numeric target. This MVP uses a
+# MEM-style individual-risk threshold as an illustrative, project-configurable target.
+# The worked examples in §14 treat R above the target as NOT ACCEPTABLE.
+
+mode: MEM            # MEM | GAME
+mem_target: 1.0e-5  # illustrative per person-year threshold (§7.2)
+
+# Status labels emitted by src/risk_model.py
+status_acceptable: "ACCEPTABLE"
+status_above: "ABOVE MEM TARGET"
+
+# Allowed L4 safety decisions (architecture doc §L4)
+safety_decisions:
+  - ACCEPT       # residual/initial risk already at or below target
+  - IMPROVE      # reduce PF/PND/PNM via respecification and safety functions
+  - RESTRICT     # reduce exposure/severity via ODD/operational measures
+  - INVESTIGATE  # risk insufficiently understood; gather evidence first
+
+game_note: >
+  GAME/GAMAB (globally at least equivalent / as good) compares residual safety against a
+  selected reference system for a comparable function, ODD, and service. It is not a single
+  numeric threshold and requires explicit reference, exposure, severity, and scenario-mix
+  definition. Not used numerically in this MVP; selectable per project.

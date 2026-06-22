@@ -1,0 +1,45 @@
+title: AI_HAZOP_L4_ACCEPTANCE
+inputs:
+  - rows_prev_json
+  - mem_target
+  - decisions_json
+instructions: |
+  You receive AI-HAZOP-8800 L3 rows that already carry a code-computed initial_risk and risk_status
+  (compared against the MEM target "mem_target"), plus the hazard description and risk rationale.
+
+  TASK: For EACH row, decide how to treat the risk. Choose ONE safety_decision strictly from
+  "allowed_decisions":
+    - ACCEPT       initial_risk is already at or below the MEM target (risk_status ACCEPTABLE) and no
+                   further measures are needed.
+    - IMPROVE      risk is above target and is best reduced by improving the AI (respecification) and
+                   adding independent safety functions (lower PF / PND / PNM).
+    - RESTRICT     risk is above target and is best reduced by operational/passive measures that lower
+                   exposure or severity (ODD restriction, speed limit, geofence).
+    - INVESTIGATE  risk is above target but insufficiently understood; evidence must be gathered first.
+
+  Be consistent with risk_status: if risk_status is ACCEPTABLE, prefer ACCEPT (unless the harm is so
+  severe that investigation is warranted). If it is ABOVE the target, choose IMPROVE, RESTRICT, or
+  INVESTIGATE based on which lever most plausibly closes the gap. Give a one-sentence acceptance_rationale.
+
+  Echo each row's "row_id" exactly. Output ONLY the new fields plus row_id.
+
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, safety_decision, acceptance_rationale]
+    properties:
+      row_id: { type: string }
+      safety_decision: { type: string }
+      acceptance_rationale: { type: string }
+constraints: |
+  - Output JSON ONLY: a top-level JSON ARRAY of objects, one per input row, SAME order and length.
+  - Each object MUST contain: row_id, safety_decision, acceptance_rationale.
+  - safety_decision MUST be exactly one of: ACCEPT, IMPROVE, RESTRICT, INVESTIGATE.
+  - Be consistent with the row's risk_status. Do not use the ':' character.
+payload_template: |
+  {
+    "rows_l3": {{rows_prev_json}},
+    "mem_target": {{mem_target}},
+    "allowed_decisions": {{decisions_json}}
+  }

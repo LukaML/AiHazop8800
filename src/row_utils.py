@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 WRAPPER_KEYS = (
     "rows", "data", "items", "result", "output",
     "deviations", "results", "causes", "effects",
-    "rows_l1", "rows_l2", "rows_l3",
+    "failure_modes", "hazards", "measures", "evidence",
+    "rows_l1", "rows_l2", "rows_l3", "rows_l4",
+    "rows_l5", "rows_l6", "rows_l7", "rows_l8",
 )
 
 
@@ -53,9 +55,15 @@ def _ensure_rows_list(obj: Any) -> List[Dict[str, Any]]:
         else:
             # 2) If it's a single row dict (LLM sometimes returns one row), wrap it
             row_sig_sets = [
+                # classic HAZOP shapes (legacy)
                 {"function", "guideword", "deviation"},
                 {"function", "guideword", "cause"},
                 {"function", "guideword", "effect"},
+                # AI-HAZOP-8800 shapes — LLM returns row_id + new fields
+                {"row_id", "failure_mode"},
+                {"row_id", "hazardous_behavior"},
+                {"row_id", "safety_decision"},
+                {"guideword", "failure_mode"},
             ]
             obj_keys = set(obj.keys())
             if any(sig.issubset(obj_keys) for sig in row_sig_sets):

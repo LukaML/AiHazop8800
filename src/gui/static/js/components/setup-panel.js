@@ -1,84 +1,64 @@
-// setup-panel.js - Setup panel component
+// setup-panel.js - Setup panel: provider/key/model, analysis contexts, guidewords, run.
 
 const SetupPanel = {
     init() {
         this.cacheElements();
         this.bindEvents();
         this.loadProviderStatus();
-        // Filter models for initial provider (openai by default)
+        this.loadCatalogues();
         this.filterModelsForProvider(AppState.provider || 'openai');
+        this.renderContexts();
     },
 
     cacheElements() {
         this.providerGroup = document.getElementById('provider-group');
-        this.apiKeySection = document.getElementById('api-key-section');
         this.apiKeyInput = document.getElementById('api-key');
         this.setKeyBtn = document.getElementById('set-key-btn');
         this.keyStatus = document.getElementById('key-status');
         this.modelSelect = document.getElementById('model-select');
 
-        this.functionsFile = document.getElementById('functions-file');
-        this.uploadFunctionsBtn = document.getElementById('upload-functions-btn');
-        this.functionsFilename = document.getElementById('functions-filename');
-        this.functionsText = document.getElementById('functions-text');
-        this.functionCount = document.getElementById('function-count');
-
-        this.ragEnabled = document.getElementById('rag-enabled');
-        this.ragOptions = document.getElementById('rag-options');
-        this.ragEmbedder = document.getElementById('rag-embedder');
-        this.ragFiles = document.getElementById('rag-files');
-        this.uploadRagBtn = document.getElementById('upload-rag-btn');
-        this.ragFilenames = document.getElementById('rag-filenames');
+        this.contextsContainer = document.getElementById('contexts-container');
+        this.contextCount = document.getElementById('context-count');
+        this.addContextBtn = document.getElementById('add-context-btn');
+        this.exampleSelect = document.getElementById('example-select');
+        this.contextFile = document.getElementById('context-file');
+        this.uploadContextBtn = document.getElementById('upload-context-btn');
+        this.guidewordsContainer = document.getElementById('guidewords-container');
+        this.gwSelectAll = document.getElementById('gw-select-all');
 
         this.notes = document.getElementById('notes');
-        this.maxDevs = document.getElementById('max-devs');
-
         this.runAnalysisBtn = document.getElementById('run-analysis-btn');
 
-        // Results loading overlay
         this.resultsLoading = document.getElementById('results-loading');
         this.resultsLoadingText = document.getElementById('results-loading-text');
-
-        // Config loading overlay
         this.configLoading = document.getElementById('config-loading');
         this.configLoadingText = document.getElementById('config-loading-text');
-
-        // Page blocker (blocks all interaction during pipeline)
         this.pageBlocker = document.getElementById('page-blocker');
 
-        // Import HTML
         this.importHtmlBtn = document.getElementById('import-html-btn');
         this.importHtmlFile = document.getElementById('import-html-file');
     },
 
     bindEvents() {
-        // Provider selection
         this.providerGroup.addEventListener('change', (e) => {
-            if (e.target.name === 'provider') {
-                this.onProviderChange(e.target.value);
-            }
+            if (e.target.name === 'provider') this.onProviderChange(e.target.value);
         });
-
-        // API key
         this.setKeyBtn.addEventListener('click', () => this.onSetApiKey());
-        this.apiKeyInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.onSetApiKey();
+        this.apiKeyInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') this.onSetApiKey(); });
+
+        this.addContextBtn.addEventListener('click', () => {
+            AppState.contexts.push(emptyContext());
+            this.renderContexts();
+        });
+        this.uploadContextBtn.addEventListener('click', () => this.contextFile.click());
+        this.contextFile.addEventListener('change', (e) => this.onContextFileChange(e));
+        this.exampleSelect.addEventListener('change', (e) => this.onLoadExample(e));
+
+        if (this.gwSelectAll) this.gwSelectAll.addEventListener('change', (e) => {
+            this.guidewordsContainer.querySelectorAll('.gw-checkbox').forEach(cb => { cb.checked = e.target.checked; });
         });
 
-        // Functions upload
-        this.uploadFunctionsBtn.addEventListener('click', () => this.functionsFile.click());
-        this.functionsFile.addEventListener('change', (e) => this.onFunctionsFileChange(e));
-        this.functionsText.addEventListener('input', () => this.onFunctionsTextChange());
-
-        // RAG toggle
-        this.ragEnabled.addEventListener('change', () => this.onRagToggle());
-        this.uploadRagBtn.addEventListener('click', () => this.ragFiles.click());
-        this.ragFiles.addEventListener('change', (e) => this.onRagFilesChange(e));
-
-        // Run analysis
         this.runAnalysisBtn.addEventListener('click', () => this.onRunAnalysis());
-
-        // Import HTML
         this.importHtmlBtn.addEventListener('click', () => this.importHtmlFile.click());
         this.importHtmlFile.addEventListener('change', (e) => this.onImportHtml(e));
     },
@@ -86,80 +66,104 @@ const SetupPanel = {
     async loadProviderStatus() {
         try {
             const response = await API.getProviders();
-            for (const provider of response.providers) {
-                AppState.keyStatus[provider.provider] = provider.key_configured;
-            }
+            for (const p of response.providers) AppState.keyStatus[p.provider] = p.key_configured;
             this.updateKeyStatusDisplay();
-        } catch (error) {
-            console.error('Failed to load provider status:', error);
-        }
+        } catch (error) { console.error('Failed to load provider status:', error); }
+    },
+
+    async loadCatalogues() {
+        try {
+            const cat = await API.getCatalogues();
+            AppState.catalogues = cat;
+            // Examples
+            this.exampleSelect.innerHTML = '<option value="">Load example...</option>' +
+                cat.examples.map(n => `<option value="${this.esc(n)}">${this.esc(n)}</option>`).join('');
+            // Guidewords
+            this.guidewordsContainer.innerHTML = cat.guidewords.map(g => `
+                <label class="flex items-center gap-1 text-xs cursor-pointer">
+                    <input type="checkbox" class="accent-blue-600 gw-checkbox" value="${this.esc(g.id)}">
+                    <span title="${this.esc(g.meaning || '')}">${this.esc(String(g.id).replace(/_/g, ' '))}</span>
+                </label>`).join('');
+            if (this.gwSelectAll && this.gwSelectAll.checked) {
+                this.guidewordsContainer.querySelectorAll('.gw-checkbox').forEach(cb => { cb.checked = true; });
+            }
+            this.renderContexts();  // re-render now that class/aspect options exist
+        } catch (error) { console.error('Failed to load catalogues:', error); }
+    },
+
+    renderContexts() {
+        const classes = AppState.catalogues.component_classes || [];
+        const aspects = AppState.catalogues.aspects || [];
+        const opts = (arr, sel) => arr.map(v =>
+            `<option value="${this.esc(v)}" ${v === sel ? 'selected' : ''}>${this.esc(v)}</option>`).join('');
+
+        this.contextsContainer.innerHTML = AppState.contexts.map((c, i) => `
+            <div class="border border-slate-200 rounded-lg p-3 flex flex-col gap-2 bg-slate-50" data-idx="${i}">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold text-slate-500">Component ${i + 1}</span>
+                    ${AppState.contexts.length > 1 ? `<button type="button" class="remove-ctx text-xs text-red-500 hover:text-red-700">remove</button>` : ''}
+                </div>
+                <input type="text" data-field="component" placeholder="Component (e.g. Camera Object Detection)" value="${this.esc(c.component)}"
+                    class="px-2 py-1.5 border border-slate-300 rounded text-sm bg-white">
+                <select data-field="component_class" class="px-2 py-1.5 border border-slate-300 rounded text-sm bg-white">
+                    <option value="">Select class...</option>${opts(classes, c.component_class)}
+                </select>
+                <select data-field="aspect" class="px-2 py-1.5 border border-slate-300 rounded text-sm bg-white">
+                    <option value="">Select aspect...</option>${opts(aspects, c.aspect)}
+                </select>
+                <textarea data-field="odd" rows="2" placeholder="ODD (operational design domain)..."
+                    class="px-2 py-1.5 border border-slate-300 rounded text-sm bg-white resize-y">${this.esc(c.odd)}</textarea>
+                <textarea data-field="scenario" rows="2" placeholder="Scenario..."
+                    class="px-2 py-1.5 border border-slate-300 rounded text-sm bg-white resize-y">${this.esc(c.scenario)}</textarea>
+            </div>`).join('');
+
+        // Wire inputs
+        this.contextsContainer.querySelectorAll('[data-idx]').forEach(card => {
+            const idx = parseInt(card.dataset.idx);
+            card.querySelectorAll('[data-field]').forEach(el => {
+                el.addEventListener('input', () => { AppState.contexts[idx][el.dataset.field] = el.value; });
+                el.addEventListener('change', () => { AppState.contexts[idx][el.dataset.field] = el.value; });
+            });
+            const rm = card.querySelector('.remove-ctx');
+            if (rm) rm.addEventListener('click', () => {
+                AppState.contexts.splice(idx, 1);
+                this.renderContexts();
+            });
+        });
+
+        const n = AppState.contexts.length;
+        this.contextCount.textContent = `${n} component${n !== 1 ? 's' : ''}`;
     },
 
     onProviderChange(provider) {
         AppState.provider = provider;
-
-        // All providers require API key now (openai, gemini, groq)
-        this.apiKeySection.classList.remove('hidden');
-
-        // Filter models for selected provider
         this.filterModelsForProvider(provider);
-
         this.updateKeyStatusDisplay();
     },
 
     filterModelsForProvider(provider) {
-        // Map provider to optgroup label
-        const providerLabels = {
-            'openai': 'OpenAI',
-            'gemini': 'Gemini',
-            'groq': 'Groq'
-        };
-
-        const selectedLabel = providerLabels[provider] || 'OpenAI';
-
-        // Get all optgroups
-        const optgroups = this.modelSelect.querySelectorAll('optgroup');
-
-        // Show/hide optgroups based on provider
-        optgroups.forEach(optgroup => {
-            if (optgroup.label === selectedLabel) {
-                optgroup.style.display = '';
-                // Enable all options in this group
-                optgroup.querySelectorAll('option').forEach(opt => opt.disabled = false);
-            } else {
-                optgroup.style.display = 'none';
-                // Disable all options in hidden groups
-                optgroup.querySelectorAll('option').forEach(opt => opt.disabled = true);
-            }
+        const labels = { openai: 'OpenAI', gemini: 'Gemini', groq: 'Groq' };
+        const selectedLabel = labels[provider] || 'OpenAI';
+        this.modelSelect.querySelectorAll('optgroup').forEach(og => {
+            const match = og.label === selectedLabel;
+            og.style.display = match ? '' : 'none';
+            og.querySelectorAll('option').forEach(opt => opt.disabled = !match);
         });
-
-        // Reset to default if current selection is not available
-        const currentValue = this.modelSelect.value;
-        const currentOption = this.modelSelect.querySelector(`option[value="${currentValue}"]`);
-        if (currentOption && currentOption.disabled) {
-            this.modelSelect.value = '';  // Reset to "Default for provider"
-        }
+        const cur = this.modelSelect.querySelector(`option[value="${this.modelSelect.value}"]`);
+        if (cur && cur.disabled) this.modelSelect.value = '';
     },
 
     async onSetApiKey() {
         const key = this.apiKeyInput.value.trim();
-        if (!key) {
-            alert('Please enter an API key');
-            return;
-        }
-
+        if (!key) { alert('Please enter an API key'); return; }
         try {
             this.setKeyBtn.disabled = true;
             await API.setApiKey(AppState.provider, key);
-
             AppState.keyStatus[AppState.provider] = true;
             this.apiKeyInput.value = '';
             this.updateKeyStatusDisplay();
-        } catch (error) {
-            alert('Failed to set API key: ' + error.message);
-        } finally {
-            this.setKeyBtn.disabled = false;
-        }
+        } catch (error) { alert('Failed to set API key: ' + error.message); }
+        finally { this.setKeyBtn.disabled = false; }
     },
 
     updateKeyStatusDisplay() {
@@ -168,162 +172,116 @@ const SetupPanel = {
         this.keyStatus.className = 'key-status ' + (configured ? 'configured' : 'not-configured');
     },
 
-    async onFunctionsFileChange(e) {
+    async onContextFileChange(e) {
         const file = e.target.files[0];
         if (!file) return;
-
         try {
-            const response = await API.uploadFunctions(file);
-            AppState.setFunctions(response.functions);
-            this.functionsFilename.textContent = file.name;
-            this.functionsText.value = response.functions.join('\n');
-            this.updateFunctionCount();
-        } catch (error) {
-            alert('Failed to parse functions file: ' + error.message);
-        }
+            const response = await API.uploadContext(file);
+            AppState.contexts = response.contexts.map(c => ({ ...c }));
+            if (AppState.contexts.length === 0) AppState.contexts = [emptyContext()];
+            this.renderContexts();
+        } catch (error) { alert('Failed to parse context file: ' + error.message); }
+        this.contextFile.value = '';
     },
 
-    onFunctionsTextChange() {
-        const text = this.functionsText.value;
-        const funcs = text.split('\n').filter(f => f.trim());
-        AppState.setFunctions(funcs);
-        this.functionsFilename.textContent = '';
-        this.updateFunctionCount();
-    },
-
-    updateFunctionCount() {
-        const count = AppState.functions.length;
-        this.functionCount.textContent = `${count} function${count !== 1 ? 's' : ''}`;
-    },
-
-    onRagToggle() {
-        AppState.ragEnabled = this.ragEnabled.checked;
-        if (AppState.ragEnabled) {
-            this.ragOptions.classList.remove('hidden');
-        } else {
-            this.ragOptions.classList.add('hidden');
-        }
-    },
-
-    async onRagFilesChange(e) {
-        const files = Array.from(e.target.files);
-        if (!files.length) return;
-
+    async onLoadExample(e) {
+        const name = e.target.value;
+        if (!name) return;
         try {
-            const response = await API.uploadRagFiles(files);
-            AppState.ragPaths = response.file_paths;
-            this.ragFilenames.textContent = files.map(f => f.name).join(', ');
-        } catch (error) {
-            alert('Failed to upload RAG files: ' + error.message);
-        }
+            const response = await API.loadExample(name);
+            AppState.contexts = response.contexts.map(c => ({ ...c }));
+            this.renderContexts();
+        } catch (error) { alert('Failed to load example: ' + error.message); }
+        e.target.value = '';
+    },
+
+    selectedGuidewords() {
+        return [...this.guidewordsContainer.querySelectorAll('.gw-checkbox:checked')].map(cb => cb.value);
+    },
+
+    validContexts() {
+        return AppState.contexts.filter(c =>
+            c.component && c.component_class && c.aspect && c.odd && c.scenario);
     },
 
     async onRunAnalysis() {
-        // Validate
-        if (!AppState.isKeyConfigured()) {
-            alert('Please configure API key for ' + AppState.provider);
+        if (!AppState.isKeyConfigured()) { alert('Please configure API key for ' + AppState.provider); return; }
+        const contexts = this.validContexts();
+        if (contexts.length === 0) {
+            alert('Please fill in at least one complete context (all 5 fields).');
             return;
         }
 
-        if (AppState.functions.length === 0) {
-            alert('Please enter at least one function');
-            return;
-        }
-
-        // Gather parameters
         AppState.model = this.modelSelect.value;
         AppState.notes = this.notes.value;
-        AppState.maxDevsPerGw = parseInt(this.maxDevs.value) || 2;
-        AppState.ragEmbedder = this.ragEmbedder.value;
+        const guidewords = this.selectedGuidewords();
 
         const params = {
             provider: AppState.provider,
             model: AppState.model || null,
-            functions: AppState.functions,
+            contexts,
             notes: AppState.notes,
-            max_devs_per_gw: AppState.maxDevsPerGw,
-            rag_enabled: AppState.ragEnabled,
-            rag_paths: AppState.ragPaths,
-            rag_embedder: AppState.ragEmbedder,
+            guidewords: guidewords.length ? guidewords : null,
         };
 
         try {
             this.runAnalysisBtn.disabled = true;
-
-            // Show loading overlay in results section
-            if (this.resultsLoading) this.resultsLoading.classList.remove('hidden');
-            if (this.resultsLoadingText) this.resultsLoadingText.textContent = 'Running pipeline...';
-
-            // Show loading overlay in config panel
-            if (this.configLoading) this.configLoading.classList.remove('hidden');
-            if (this.configLoadingText) this.configLoadingText.textContent = 'Running pipeline...';
-
-            // Block entire page during analysis
-            if (this.pageBlocker) this.pageBlocker.classList.remove('hidden');
-
+            this.showLoading('Running pipeline...');
             const response = await API.startAnalysis(params);
             AppState.runId = response.run_id;
             AppState.status = response.status;
-
-            // Start polling
             this.startPolling();
         } catch (error) {
             alert('Failed to start analysis: ' + error.message);
-            if (this.resultsLoading) this.resultsLoading.classList.add('hidden');
-            if (this.configLoading) this.configLoading.classList.add('hidden');
-            if (this.pageBlocker) this.pageBlocker.classList.add('hidden');
+            this.hideLoading();
             this.runAnalysisBtn.disabled = false;
         }
     },
 
-    startPolling() {
-        if (AppState.pollInterval) {
-            clearInterval(AppState.pollInterval);
-        }
+    showLoading(text) {
+        if (this.resultsLoading) this.resultsLoading.classList.remove('hidden');
+        if (this.resultsLoadingText) this.resultsLoadingText.textContent = text;
+        if (this.configLoading) this.configLoading.classList.remove('hidden');
+        if (this.configLoadingText) this.configLoadingText.textContent = text;
+        if (this.pageBlocker) this.pageBlocker.classList.remove('hidden');
+    },
+    hideLoading() {
+        if (this.resultsLoading) this.resultsLoading.classList.add('hidden');
+        if (this.configLoading) this.configLoading.classList.add('hidden');
+        if (this.pageBlocker) this.pageBlocker.classList.add('hidden');
+    },
 
+    startPolling() {
+        if (AppState.pollInterval) clearInterval(AppState.pollInterval);
         AppState.pollInterval = setInterval(async () => {
             try {
                 const status = await API.getAnalysisStatus(AppState.runId);
                 AppState.status = status.status;
-                const progressText = status.progress || `Status: ${status.status}`;
-                if (this.resultsLoadingText) this.resultsLoadingText.textContent = progressText;
-                if (this.configLoadingText) this.configLoadingText.textContent = progressText;
-
-                if (status.status === 'completed') {
-                    this.onAnalysisComplete();
-                } else if (status.status === 'failed') {
-                    this.onAnalysisFailed(status.error);
-                }
-            } catch (error) {
-                console.error('Polling error:', error);
-            }
+                const text = status.progress || `Status: ${status.status}`;
+                if (this.resultsLoadingText) this.resultsLoadingText.textContent = text;
+                if (this.configLoadingText) this.configLoadingText.textContent = text;
+                if (status.status === 'completed') this.onAnalysisComplete();
+                else if (status.status === 'failed') this.onAnalysisFailed(status.error);
+            } catch (error) { console.error('Polling error:', error); }
         }, 2000);
     },
 
     async onAnalysisComplete() {
         clearInterval(AppState.pollInterval);
         AppState.pollInterval = null;
-
         try {
             const results = await API.getAnalysisResults(AppState.runId);
             AppState.rows = results.rows;
-
-            if (this.resultsLoading) this.resultsLoading.classList.add('hidden');
-            if (this.configLoading) this.configLoading.classList.add('hidden');
-            if (this.pageBlocker) this.pageBlocker.classList.add('hidden');
+            this.hideLoading();
             this.runAnalysisBtn.disabled = false;
-
-            // Update results table
             ResultsTable.render(results.rows);
             document.getElementById('export-csv-btn').disabled = false;
             document.getElementById('export-html-btn').disabled = false;
             document.getElementById('results-info').textContent =
-                `${results.rows.length} rows | ${results.provider} / ${results.model}`;
+                `${results.rows.length} rows | ${results.components} component(s) | ${results.provider} / ${results.model}`;
         } catch (error) {
             alert('Failed to load results: ' + error.message);
-            if (this.resultsLoading) this.resultsLoading.classList.add('hidden');
-            if (this.configLoading) this.configLoading.classList.add('hidden');
-            if (this.pageBlocker) this.pageBlocker.classList.add('hidden');
+            this.hideLoading();
             this.runAnalysisBtn.disabled = false;
         }
     },
@@ -333,7 +291,6 @@ const SetupPanel = {
         if (!file) return;
         try {
             const response = await API.importHtml(file);
-            // Load the imported run's results
             AppState.runId = response.run_id;
             AppState.status = 'completed';
             const results = await API.getAnalysisResults(response.run_id);
@@ -343,23 +300,23 @@ const SetupPanel = {
             document.getElementById('export-html-btn').disabled = false;
             document.getElementById('results-info').textContent =
                 `${results.rows.length} rows | imported from HTML`;
-        } catch (error) {
-            alert('Failed to import HTML: ' + error.message);
-        }
-        this.importHtmlFile.value = '';  // reset so same file can be re-imported
+        } catch (error) { alert('Failed to import HTML: ' + error.message); }
+        this.importHtmlFile.value = '';
     },
 
     onAnalysisFailed(error) {
         clearInterval(AppState.pollInterval);
         AppState.pollInterval = null;
-
         alert('Analysis failed: ' + (error || 'Unknown error'));
-        if (this.resultsLoading) this.resultsLoading.classList.add('hidden');
-        if (this.configLoading) this.configLoading.classList.add('hidden');
-        if (this.pageBlocker) this.pageBlocker.classList.add('hidden');
+        this.hideLoading();
         this.runAnalysisBtn.disabled = false;
+    },
+
+    esc(text) {
+        const div = document.createElement('div');
+        div.textContent = text == null ? '' : String(text);
+        return div.innerHTML;
     },
 };
 
-// Make globally available
 window.SetupPanel = SetupPanel;

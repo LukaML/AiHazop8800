@@ -6,10 +6,12 @@ from .settings import router as settings_router
 from .analysis import router as analysis_router
 from .rows import router as rows_router
 from .export import router as export_router
+from .catalogues import router as catalogues_router
 
 __all__ = [
     "settings_router",
     "analysis_router",
     "rows_router",
     "export_router",
+    "catalogues_router",
 ]

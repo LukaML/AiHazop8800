@@ -1,0 +1,52 @@
+title: AI_HAZOP_L6_MEASURES
+inputs:
+  - rows_prev_json
+  - mitigation_json
+instructions: |
+  You receive AI-HAZOP-8800 rows that each carry one or more ai_safety_goals plus the failure_mode and
+  hazardous_behavior. "mitigation_taxonomy" defines the three measure classes and gives example measures
+  and general hazard-family hints.
+
+  TASK: For EACH row, allocate concrete measures, written in REQUIREMENT STYLE ("The system shall ..."),
+  across the three classes:
+    - respecifications            change the AI function/data/model/interface so the failure is less
+                                  likely or less safety-relevant (primarily reduces PF).
+    - safety_functions            independent monitor/control that detects, prevents propagation, or
+                                  transitions to a safe state (reduces PND/PNM).
+    - passive_operational_measures ODD/operational controls that reduce exposure or maintain assumptions
+                                  (reduces E, sometimes S).
+
+  TRACEABILITY (required): EVERY safety goal must be addressed by AT LEAST ONE measure. Number the goals
+  by their order in ai_safety_goals (the first goal is SG1, the second SG2, and so on). Begin each measure
+  string with the tag of the goal it serves, written as "[SG1] ", "[SG2] " etc., followed by the
+  requirement sentence. A goal may have several measures across different classes; a measure serves exactly
+  one goal. Choose the class that best fits the goal (a detection/monitoring goal usually needs a
+  safety_function; an "improve the AI" goal usually needs a respecification; an exposure/severity goal
+  usually needs a passive_operational_measure).
+
+  Example safety_functions item -> "[SG1] The system shall output UNKNOWN when cyclist observability is
+  insufficient instead of reporting clear."
+
+  Echo each row's "row_id" exactly. Output ONLY the new fields plus row_id.
+
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, respecifications, safety_functions, passive_operational_measures]
+    properties:
+      row_id: { type: string }
+      respecifications: { type: array, items: { type: string } }
+      safety_functions: { type: array, items: { type: string } }
+      passive_operational_measures: { type: array, items: { type: string } }
+constraints: |
+  - Output JSON ONLY: a top-level JSON ARRAY of objects, one per input row, SAME order and length.
+  - Each of the three fields is an array of requirement-style strings (a class may be empty).
+  - EVERY safety goal (SG1..SGn, by ai_safety_goals order) MUST be covered by at least one measure, and
+    each measure string MUST begin with its goal tag "[SGk] ".
+  - Write measures as one-sentence "shall" requirements. Do not use the ':' or ';' characters.
+payload_template: |
+  {
+    "rows": {{rows_prev_json}},
+    "mitigation_taxonomy": {{mitigation_json}}
+  }

@@ -547,11 +547,16 @@ def l3_to_reviewer(validator_report: Dict[str, Any], rows_l3: List[Dict[str, Any
 # interpreting it as an instruction.  Detected copies trigger automatic retry.
 # =========================
 
-# Target fields per stage for verbatim copy detection
+# Target fields per stage for verbatim copy detection (AI-HAZOP-8800 phases)
 _VERBATIM_TARGET_FIELDS = {
-    "L1": ["deviation"],
-    "L2": ["cause", "deviation"],
-    "L3": ["effect", "cause", "deviation"],
+    "L1": ["failure_mode"],
+    "L2": ["hazardous_behavior", "potential_harm"],
+    "L3": ["risk_rationale"],
+    "L4": ["acceptance_rationale"],
+    "L5": ["ai_safety_goals"],
+    "L6": ["respecifications", "safety_functions", "passive_operational_measures"],
+    "L7": ["residual_rationale"],
+    "L8": ["evidence", "open_assumptions"],
 }
 
 # Max retries when verbatim copy detected

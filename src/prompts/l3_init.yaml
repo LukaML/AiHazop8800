@@ -1,332 +1,70 @@
-title: L3_INIT_FROM_L2
+title: AI_HAZOP_L3_INITIAL_RISK
 inputs:
-  - rows_l2_json
+  - rows_prev_json
+  - risk_scales_json
+  - mem_target
 instructions: |
-  For every L2 row, copy all existing fields unchanged and add two new fields:
-    - "effect": a single-sentence system-level effect.
-    - "potentially_dangerous": a boolean safety-relevance triage flag.
+  You receive AI-HAZOP-8800 L2 rows that were triaged as potentially dangerous. Each row holds the
+  failure_mode, hazardous_behavior, potential_harm, and the component/ODD/scenario context.
 
-  Output JSON only (array of rows, same order and count as input).
+  TASK: For EACH row, estimate the initial risk by selecting ONE ORDINAL LEVEL for each of the five
+  factors, choosing strictly from the allowed labels in "risk_scales" (do NOT invent labels and do
+  NOT output numbers):
+    - E   Exposure to this scenario/function per person-year.
+    - PF  Probability the AI failure mode occurs in this scenario.
+    - PND Probability the failure is NOT detected before it causes harm.
+    - PNM Probability NO mitigation prevents harm after the failure.
+    - S   Fatality-equivalent severity of the potential harm.
 
-  === EFFECT WRITING RULES ===
+  CALIBRATION — choose levels realistically, not optimistically. This is INITIAL risk, BEFORE any
+  safety measures (monitors, fallbacks, conservative behavior, independent checks are only added
+  later in L6), so do NOT credit protections that are not already part of the baseline component.
+    - PF  Learned AI perception/decision failures in their triggering conditions are NOT rare events.
+          For the relevant scenario, PF is typically medium to high. Reserve very_low or low only for
+          failure modes that are genuinely implausible for this component, not as a default.
+    - PND Without an independent monitor or consistency check (none exist yet at L3), the failure is
+          usually medium to high probability of going undetected. The AI's own confidence is NOT
+          detection.
+    - PNM With no dedicated mitigation yet, PNM is usually medium to high unless an inherent baseline
+          behavior already prevents harm.
+    - S   Rate by the WORST CREDIBLE outcome of the hazardous_behavior/potential_harm, not an average.
+          A collision with a vulnerable road user (cyclist, pedestrian) is serious to fatal.
+    - E   Exposure reflects how often the scenario/function occurs per person-year.
+  Apply the ODD where it actually belongs. Low speed and geofencing mainly reduce E and S; they do
+  NOT by themselves make PF, PND, or PNM low. Provide a short risk_rationale (one sentence) naming
+  the dominant factors.
 
-  Each effect should address three content goals (weave naturally, not as a
-  rigid part1-part2-part3 template):
-    - What subsystem output changes
-    - How vehicle motion is affected
-    - What physical outcome results
-  You may lead with any element, combine two into one clause, or imply one
-  when obvious from context.
+  ANCHOR (illustrative, do not copy blindly) — a campus shuttle that misses a cyclist behind a parked
+  van, with no independent monitor, is roughly E medium, PF high, PND high, PNM high, S serious, which
+  yields a risk ABOVE the MEM target. Aim for a realistic spread across rows, not all-low or all-high.
 
-  When writing effects, assume no safeguards are functioning (no backup sensors,
-  no redundant braking, no driver override, no secondary warning systems).
-  Describe the unmitigated physical outcome of the failure chain.
+  Do NOT compute the numeric risk value — the system computes R = E·PF·PND·PNM·S from your chosen
+  levels and compares it to the MEM target ("mem_target").
 
-  Write each effect as a single plain sentence that begins directly with the
-  technical outcome. Do NOT start with "Due to..." or repeat the deviation text.
-  Maximum 24 words. Target 15-22 words.
+  Echo each row's "row_id" exactly. Output ONLY the new fields plus row_id.
 
-  === CAUSE-TO-EFFECT TRACING (MANDATORY) ===
-
-  Read the cause field and identify its FAILURE DOMAIN, then trace the effect
-  through that domain's specific propagation path:
-
-    Hardware / Mechanical cause ->
-      physical degradation -> direct loss or change of mechanical output ->
-      immediate vehicle-level consequence.
-      (e.g., seal leak -> pressure loss -> stopping distance increase)
-
-    ECU / Software cause ->
-      software fault -> wrong or missing control output -> actuator receives
-      incorrect command -> vehicle-level consequence.
-      (e.g., calibration error -> wrong boost pressure -> insufficient braking)
-
-    Communication / Bus cause ->
-      data loss or corruption -> controller acts on stale or wrong input ->
-      delayed or incorrect actuation -> vehicle-level consequence.
-      (e.g., CAN timeout -> stale wheel speed -> ABS releases too late)
-
-    Electrical / Wiring cause ->
-      signal path interrupted or distorted -> controller reads wrong value ->
-      incorrect control response -> vehicle-level consequence.
-      (e.g., sensor short-to-ground -> ECU reads zero speed -> ABS inhibited)
-
-    Perception / Sensor cause ->
-      detection failure or false data -> controller acts on incorrect scene model ->
-      wrong path/speed decision -> vehicle-level consequence.
-      (e.g., ultrasonic false-negative -> planner sees clear path -> vehicle
-       reverses into undetected pedestrian)
-
-  The effect MUST trace through the cause's domain. A hydraulic leak cannot
-  produce a software-mediated response. A CAN timeout cannot produce a
-  mechanical wear outcome. Match the propagation path to the cause.
-
-  EXAMPLE EFFECTS (each uses a different sentence structure and failure domain):
-
-    Hardware cause -> "Corroded caliper slides seize the left-front pad against
-       the rotor, pulling the vehicle into the oncoming parking lane."
-
-    ECU cause -> "Because the ECU holds a stale calibration map, commanded boost
-       pressure undershoots by 35%, leaving braking force insufficient for the
-       grade."
-
-    Communication cause -> "Stale wheel-speed data on the CAN bus delays ABS
-       release by 120 ms, locking the rear axle and triggering a 1.5 m skid."
-
-    Hardware cause -> "With the return spring fatigued, the throttle plate rests
-       at 12% open after pedal release, producing 8 km/h creep toward a barrier."
-
-    ECU cause -> "Safe-state activation after watchdog timeout removes all
-       power-steering assist mid-turn, requiring full manual effort at parking
-       speed."
-
-    Communication cause -> "Gateway drops the brake-request message for two
-       consecutive cycles, so the ESP controller applies zero corrective yaw
-       torque during lane change."
-
-  === MULTI-ROW DIVERSITY EXAMPLE (same function, different guidewords) ===
-
-  Function: "Provide power-assisted steering"
-
-    guideword=no,   cause="EPS MOSFET fails open-circuit..."
-    effect: "Total loss of electric assist forces full manual steering effort,
-       making low-speed parking turns physically demanding."
-
-    guideword=more, cause="Torque sensor offset drifts +2 Nm..."
-    effect: "Over-assisted steering amplifies small inputs, sweeping the front
-       axle past intended heading by 15 degrees."
-
-    guideword=reverse, cause="CAN torque message bit-flip inverts direction..."
-    effect: "Assist pushes against the driver's turn, demanding double hand force
-       and veering toward the opposite curb."
-
-    guideword=late, cause="EPS controller boot delays assist by 1.2 s..."
-    effect: "Steering feels unassisted for the first parking maneuver, catching
-       the driver off-guard during the initial turn."
-
-  Each effect traces through its cause's domain (hardware, sensor, comms,
-  software) and uses a different sentence structure.
-
-  SENTENCE VARIETY: Do NOT start every effect with "[Component] [verb]s".
-  Vary openers: condition-first ("With...", "Because...", "After..."),
-  result-first ("Stopping distance grows..."), data-fault-first ("Stale data
-  causes..."), or safe-state-first ("Safe-state activation removes...").
-
-  SENTENCE STRUCTURE VARIATION: Do NOT use identical sentence structure across rows
-  for the same function. Vary grammatical openers:
-    * Result-first: "Stopping distance extends by 40%..."
-    * Condition-first: "With no backup sensor available, the vehicle reverses..."
-    * Subsystem-first: "Stale wheel-speed data delays ABS release..."
-    * Action-first: "Safe-state activation removes all power-steering assist..."
-  If three or more effects in the same function start with the same grammatical
-  pattern, rewrite at least one using a different opener.
-
-  === GUIDEWORD DIFFERENTIATION (MANDATORY) ===
-
-  Each guideword implies a distinct physical behavior. The effect for each
-  guideword MUST reflect that guideword's specific meaning. Use this mapping
-  to differentiate effects — adapt the examples to the actual function domain:
-
-    no         -> complete absence of function output
-                  (braking: no deceleration; steering: no assist force;
-                   throttle: no power delivery)
-    more       -> excessive output magnitude
-                  (braking: abrupt over-deceleration, jerk; steering: over-assist
-                   causing overshoot; throttle: unintended surge)
-    less       -> reduced but not absent output
-                  (braking: insufficient deceleration; steering: weak assist;
-                   throttle: sluggish response)
-    as well as -> intended output plus unintended additional behavior
-                  (braking + unintended steering pull; throttle + unintended
-                   engine rev; steering + parasitic brake drag)
-    part of    -> intermittent or incomplete output delivery
-                  (braking: pulsing/oscillatory force; steering: intermittent
-                   assist dropout; throttle: stuttering power)
-    reverse    -> inverted control logic or opposite action
-                  (braking: release when apply commanded; steering: assist in
-                   wrong direction; throttle: cut when acceleration requested)
-    other than -> function operates in wrong mode or wrong context
-                  (braking: wrong mode active; steering: sport mode when
-                   parking mode expected; throttle: limp-home when normal)
-    early      -> premature activation before intended timing
-                  (braking: premature stop; steering: assist onset too early;
-                   throttle: power before driver commands it)
-    late       -> delayed activation past intended timing
-                  (braking: late stop causing overshoot; steering: delayed
-                   assist in turn; throttle: delayed power on merge)
-    before     -> function acts before a prerequisite step completes
-                  (braking before gear engagement; steering assist before
-                   speed threshold; throttle before clutch engaged)
-    after      -> function acts after its required window has passed
-                  (braking after obstacle cleared; steering correction after
-                   lane departure; throttle after stop is needed)
-
-  If two rows for the same function have similar effect text, one MUST be
-  rewritten. "no" and "less" must never produce the same wording.
-
-  === LOGICAL CONSISTENCY ===
-
-  The effect must be physically consistent with the deviation and cause:
-    - If the deviation describes absence of function, the effect must describe
-      continued uncontrolled state (not activation).
-    - If the deviation describes excess, the effect must describe over-response.
-    - Braking activation cannot cause acceleration.
-    - Increased braking force cannot produce unintended forward motion.
-  If the effect contradicts the deviation physics, rewrite it.
-
-  === POTENTIALLY_DANGEROUS FLAG ===
-
-  Set potentially_dangerous per row based on the effect content:
-    true  — the effect describes unintended vehicle motion or physical contact
-            (unintended acceleration, uncontrolled rollback, lateral drift into
-            object, failure to stop before obstacle, extended stopping distance
-            leading to contact).
-    false — vehicle remains stationary, safe-state activation halts motion,
-            nuisance braking (vehicle stops but no contact), false-positive
-            detection triggers unnecessary stop, degraded parking precision
-            (wider arc, slower maneuver), manual-mode fallback, comfort
-            degraded, cosmetic fault, infotainment glitch.
-
-  Evaluate EACH ROW individually. Do not assign the same value to every row.
-  If uncertain, default to false. This is triage, not a HARA/ASIL determination.
-
-  RISK BALANCE: Not every deviation in a parking system is safety-critical.
-  Classify as false when: vehicle remains stationary despite the fault, system
-  fails to a safe state (stops or disables itself), nuisance braking occurs
-  (vehicle stops unexpectedly but no contact results), false-positive detection
-  triggers an unnecessary stop, only parking precision degrades (wider arc,
-  extra maneuver needed, suboptimal final position), system falls back to
-  manual mode, or only comfort/cosmetic quality is affected.
-  Reserve true ONLY for effects where the vehicle undergoes unintended motion
-  or makes physical contact (collision, rollback into object, creep toward
-  pedestrian, drift into adjacent vehicle).
-  Aim for roughly 40-60% of rows marked true within each function — if you find
-  yourself marking all rows true, re-evaluate whether some effects truly result
-  in unintended motion or contact.
-
-  === OPERATIONAL CONTEXT ===
-
-  Unless the function description or system notes explicitly reference highway
-  or high-speed operation, assume LOW-SPEED PARKING as the default context.
-  Prefer parking-appropriate outcomes:
-    - curb strike during low-speed maneuver
-    - rear bumper impact with obstacle at under 5 km/h
-    - pedestrian contact at walking speed in parking area
-    - parking slot overshoot into adjacent space or wall
-    - vehicle rollback on incline into vehicle behind
-    - side mirror contact with pillar or adjacent vehicle
-    - door-zone encroachment into neighboring parking space
-    - shopping cart or bollard contact during automated maneuver
-    - unintended creep toward pedestrian crossing behind vehicle
-    - vehicle wedged diagonally across two parking spaces
-  Avoid highway-centric outcomes unless justified by the function context.
-
-  === BANNED PHRASES ===
-
-  Do not use these in the effect field:
-    "risk of collision", "risking collision", "unpredictable behavior",
-    "potential hazards", "potential hazard", "dangerous situation",
-    "safety risk", "risking loss of control", "loss of control",
-    "may cause an accident", "unintended consequences",
-    "risking obstacle contact".
-  Replace with specific vehicle-level outcomes.
-
-  Avoid vague nouns without specifics: "malfunction", "failure", "issue",
-  "error". If used, they must name the specific component and mode.
-
-  === CONTEXT INTEGRATION ===
-
-  If additional context (notes or RAG material) is appended below, use it to
-  trace more accurate system-level effects:
-  - Prefer subsystem names and interaction paths from the context.
-  - Use physical parameters and measurable outcomes described in the context.
-  - Reference operating conditions or safety boundaries from the context.
-  Do not copy context verbatim; synthesize it into proper HAZOP effect language
-  following the rules above.
-
-  === EXAMPLE ===
-
-  Input row:
-  {"row_id":"L1-0","function":"Provide ABS braking","guideword":"less",
-   "deviation":"ABS modulation cycles deliver reduced braking pressure to front calipers during emergency stop.",
-   "cause":"The ABS hydraulic modulator solenoid valve developed a partial blockage from contaminated brake fluid, restricting pressure delivery during rapid cycling.",
-   "applicability_score":1.0,"applicability_note":"directly applicable"}
-
-  Output row:
-  {"row_id":"L1-0","function":"Provide ABS braking","guideword":"less",
-   "deviation":"ABS modulation cycles deliver reduced braking pressure to front calipers during emergency stop.",
-   "cause":"The ABS hydraulic modulator solenoid valve developed a partial blockage from contaminated brake fluid, restricting pressure delivery during rapid cycling.",
-   "effect":"Blocked modulator valve starves front calipers of pressure, extending emergency stopping distance by roughly 40% on dry surface.",
-   "potentially_dangerous":true,
-   "applicability_score":1.0,"applicability_note":"directly applicable"}
-
-  Do not change any L2 field (row_id, function, guideword, deviation, applicability, cause).
-  Only add two fields: "effect" and "potentially_dangerous".
-
-  CRITICAL RULES:
-    - Return EXACTLY the SAME NUMBER of rows as the input array.
-    - Preserve the EXACT SAME ORDER as the input.
-    - Do NOT group, deduplicate, merge, or drop rows.
-    - Do NOT invent extra rows.
-
-  STRICT OUTPUT INSTRUCTION:
-    - Output JSON ONLY.
-    - Output MUST be a top-level JSON ARRAY of row OBJECTS.
-    - Do NOT wrap in any outer object (no "rows", "data", "items", "result", "output").
-    - Each array element MUST be a JSON OBJECT.
-    - Use standard JSON (double quotes). No markdown/code fences or prose.
-    - EVERY returned object MUST contain ALL fields:
-        row_id, function, guideword, deviation, applicability_score, applicability_note, cause, effect, potentially_dangerous
-    - The field "effect" is MANDATORY and must be a NON-EMPTY STRING.
-    - Do NOT omit or leave "effect" blank for ANY row.
-    - NEVER return partial objects or omit keys.
-    - Do NOT wrap inside {"rows": ...} or any other key.
-    - Return EXACTLY input_count rows, in the same order as rows_l2.
 output_schema: |
   type: array
   items:
     type: object
-    required:
-      - function
-      - guideword
-      - deviation
-      - cause
-      - effect
-      - potentially_dangerous
+    required: [row_id, E, PF, PND, PNM, S, risk_rationale]
     properties:
       row_id: { type: string }
-      function: { type: string }
-      guideword: { type: string }
-      deviation: { type: string }
-      cause: { type: string }
-      effect: { type: string }
-      applicability_score: { type: number }
-      applicability_note: { type: string }
-      potentially_dangerous: { type: boolean }
+      E: { type: string }
+      PF: { type: string }
+      PND: { type: string }
+      PNM: { type: string }
+      S: { type: string }
+      risk_rationale: { type: string }
 constraints: |
-  - Output JSON ONLY. Top-level ARRAY of row objects. No wrapper keys.
-  - Return EXACTLY input_count rows in the same order.
-  - Preserve all input fields unchanged (row_id, function, guideword, deviation, cause, applicability_score, applicability_note).
-  - Add exactly two new keys per row: "effect" (string) and "potentially_dangerous" (boolean). No nested objects.
-  - Maximum 24 words per effect. Target 15-22 words.
-  - BREVITY: Each effect must be exactly ONE sentence. No compound sentences joined
-    by semicolons. If you cannot fit the content in 15-22 words, choose the most
-    critical vehicle-level outcome.
-  - Effect should address subsystem impact, vehicle dynamics change, and safety consequence as content goals (not a rigid sentence template).
-  - Effect must trace through the cause's failure domain (hardware, ECU/software, communication, or electrical).
-  - Effect must NOT start with "Due to..." or repeat the deviation text.
-  - Effect must be physically consistent with its deviation and cause.
-  - Each guideword for the same function must produce a distinct vehicle behavior type in the effect.
-  - No two rows for the same function may use near-identical effect phrasing.
-  - Ban: "risk of collision", "risking collision", "unpredictable behavior", "potential hazards",
-    "potential hazard", "dangerous situation", "safety risk", "risking loss of control",
-    "loss of control", "may cause an accident", "unintended consequences", "risking obstacle contact".
-  - Ban vague nouns without specifics: malfunction, failure, issue, error.
-  - For parking/low-speed functions, prefer parking-appropriate outcomes over highway-style outcomes.
-  - potentially_dangerous: true only if the effect describes unintended vehicle motion or physical contact; false when the vehicle remains stationary, enters a safe state, or only convenience/precision is affected. Evaluate per row individually.
-  - Do not include code fences, extra keys, metadata, or prose.
+  - Output JSON ONLY: a top-level JSON ARRAY of objects, one per input row, SAME order and length.
+  - Each object MUST contain: row_id, E, PF, PND, PNM, S, risk_rationale.
+  - E/PF/PND/PNM/S MUST each be one of the allowed ordinal labels from "risk_scales" for that factor.
+  - Do NOT output numeric factor values and do NOT compute the risk product yourself.
+  - risk_rationale is one sentence. Do not use the ':' character.
 payload_template: |
   {
-    "rows_l2": {{rows_l2_json}},
-    "input_count": {{input_count}}
+    "rows_l2": {{rows_prev_json}},
+    "risk_scales": {{risk_scales_json}},
+    "mem_target": {{mem_target}}
   }

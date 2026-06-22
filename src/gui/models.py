@@ -2,9 +2,11 @@
 """Request/response Pydantic models for the GUI REST API.
 
 Defines typed schemas for all API endpoints: settings, analysis lifecycle,
-row editing/rating/regeneration, and export.
+row editing/rating/regeneration, and export. The GUI drives the eight-phase
+AI-HAZOP-8800 pipeline (L1–L8); the analysis unit is a structured *context*
+(component / component_class / aspect / odd / scenario), not a flat function list.
 """
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -16,18 +18,16 @@ class Provider(str, Enum):
     GROQ = "groq"
 
 
-class RagEmbedder(str, Enum):
-    """RAG embedding backends."""
-    LOCAL = "local"
-    OPENAI = "openai"
-    GEMINI = "gemini"
-
-
 class RegenerationScope(str, Enum):
-    """Scope for row regeneration."""
+    """Scope for row regeneration — the phase to patch before cascading downstream."""
     L1 = "L1"
     L2 = "L2"
     L3 = "L3"
+    L4 = "L4"
+    L5 = "L5"
+    L6 = "L6"
+    L7 = "L7"
+    L8 = "L8"
     ALL = "ALL"
 
 
@@ -72,18 +72,23 @@ class ProvidersResponse(BaseModel):
 #                         ANALYSIS MODELS
 # ============================================================================
 
+class ContextInput(BaseModel):
+    """One AI-HAZOP-8800 analysis context (one component+aspect to analyse)."""
+    component: str = Field(..., min_length=1)
+    component_class: str = Field(..., min_length=1)
+    aspect: str = Field(..., min_length=1)
+    odd: str = Field(..., min_length=1)
+    scenario: str = Field(..., min_length=1)
+
+
 class StartAnalysisRequest(BaseModel):
-    """Request to start a HAZOP analysis."""
+    """Request to start an AI-HAZOP-8800 analysis."""
     provider: Provider = Provider.OPENAI
     model: Optional[str] = None
     model_review: Optional[str] = None
-    functions: List[str] = Field(..., min_length=1)
+    contexts: List[ContextInput] = Field(..., min_length=1)
     notes: str = ""
-    max_devs_per_gw: int = Field(default=2, ge=1, le=5)
-    rag_enabled: bool = False
-    rag_paths: List[str] = Field(default_factory=list)
-    rag_embedder: RagEmbedder = RagEmbedder.LOCAL
-    rag_min_sim: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    guidewords: Optional[List[str]] = None  # override the catalogue's enabled set
 
 
 class AnalysisStatus(str, Enum):
@@ -114,19 +119,20 @@ class StartAnalysisResponse(BaseModel):
 # ============================================================================
 
 class RowData(BaseModel):
-    """Data for a single HAZOP row with tracking fields."""
+    """Data for a single worksheet row.
+
+    ``original`` and ``final`` are the full merged L1–L8 field maps (lists kept as
+    lists, code-computed risk kept numeric); ``final`` reflects human edits and
+    regeneration. The frontend formats/diffs these via its field metadata.
+    """
     row_id: str
-    function: str
-    guideword: str
-    deviation_original: str
-    deviation_final: str
-    cause_original: str
-    cause_final: str
-    effect_original: str
-    effect_final: str
-    potentially_dangerous_ai: bool
-    potentially_dangerous_human: Optional[bool] = None
-    potentially_dangerous_final: bool
+    display_id: str = ""
+    component_index: int = 0
+    component: str = ""
+    guideword: str = ""
+    original: Dict[str, Any] = Field(default_factory=dict)
+    final: Dict[str, Any] = Field(default_factory=dict)
+    dangerous_final: bool = False
     rating: Rating = Rating.UNRATED
     edited_flag: bool = False
     regenerated_flag: bool = False
@@ -138,19 +144,20 @@ class AnalysisResultsResponse(BaseModel):
     status: AnalysisStatus
     provider: str
     model: str
-    rag_enabled: bool
-    rag_embedder: Optional[str] = None
+    components: int = 0
     rows: List[RowData]
     created_at: str
     completed_at: Optional[str] = None
 
 
 class EditRowRequest(BaseModel):
-    """Request to edit a row's fields."""
-    deviation: Optional[str] = None
-    cause: Optional[str] = None
-    effect: Optional[str] = None
-    potentially_dangerous: Optional[bool] = None
+    """Request to edit a row's editable fields.
+
+    ``fields`` maps editable field keys (e.g. ``failure_mode``, ``E``,
+    ``ai_safety_goals``) to new values (strings, bools, or lists). ``rating`` is
+    optional and handled separately if present.
+    """
+    fields: Dict[str, Any] = Field(default_factory=dict)
 
 
 class EditRowResponse(BaseModel):
@@ -189,7 +196,19 @@ class RegenerateRowsResponse(BaseModel):
 
 
 # ============================================================================
-#                         EXPORT MODELS
+#                         CATALOGUE / FORM MODELS
+# ============================================================================
+
+class CataloguesResponse(BaseModel):
+    """Catalogue data that drives the setup form (classes, aspects, guidewords)."""
+    component_classes: List[str]
+    aspects: List[str]
+    guidewords: List[Dict[str, Any]]
+    examples: List[str]
+
+
+# ============================================================================
+#                         EXPORT / UPLOAD MODELS
 # ============================================================================
 
 class ExportFormat(str, Enum):
@@ -197,21 +216,17 @@ class ExportFormat(str, Enum):
     CSV = "csv"
 
 
-# ============================================================================
-#                         FILE UPLOAD MODELS
-# ============================================================================
-
-class UploadFunctionsResponse(BaseModel):
-    """Response after uploading functions file."""
+class UploadContextResponse(BaseModel):
+    """Response after uploading a context file (.yaml/.json)."""
     success: bool
-    functions: List[str]
+    contexts: List[ContextInput]
     message: str
 
 
-class UploadRagResponse(BaseModel):
-    """Response after uploading RAG documents."""
+class LoadExampleResponse(BaseModel):
+    """Response with the contexts loaded from a named example file."""
     success: bool
-    file_paths: List[str]
+    contexts: List[ContextInput]
     message: str
 
 

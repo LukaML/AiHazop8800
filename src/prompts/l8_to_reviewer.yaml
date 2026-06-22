@@ -1,0 +1,29 @@
+title: "AI-HAZOP L8 reviewer"
+inputs:
+  - validator_report
+  - rows_l8_json
+instructions: |
+  Review AI-HAZOP-8800 L8 rows. Each holds the safety_decision, any measures, the evidence list, and
+  open_assumptions.
+
+  Flag rows where:
+    - evidence is missing, generic, or not tied to the row's measures/decision (e.g. a runtime monitor
+      with no fault-injection or runtime-verification evidence; a retraining respecification with no
+      dataset-audit or scenario-validation evidence),
+    - an ACCEPT row provides no evidence justifying acceptance,
+    - open_assumptions restates evidence instead of naming unverified assumptions.
+
+  Keep row_id and upstream fields unchanged.
+
+  Output policy:
+  - All fine: {"decision":"OK","scope":"L8","issues":[],"suggestions":[],"suggestions_by_row":[]}
+  - Otherwise: {"decision":"RETURN", ...} with >=1 items in suggestions_by_row, each like
+    {"row_id":"L8-2","fields":["evidence","open_assumptions"],"problem":"...","suggestion":"..."}
+payload_template: |
+  {"report": {{validator_report}}, "rows": {{rows_l8_json}}}
+output_schema: |
+  {"decision":"OK|RETURN|ESCALATE","scope":"L8","issues":["..."],"suggestions":["..."],
+   "suggestions_by_row":[{"row_id":"L8-2","fields":["evidence"],"problem":"...","suggestion":"..."}]}
+constraints: |
+  - When decision="RETURN": suggestions_by_row length MUST be >=1.
+  - Keep row_id and upstream fields unchanged. Evidence must tie to measures/decision and be non-empty.

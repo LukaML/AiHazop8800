@@ -1,118 +1,182 @@
 # src/gui/services/html_exporter.py
-"""HTML report generation with danger highlighting and rating column.
+"""HTML worksheet export (final values) with danger highlighting + rating column.
 
-Shows only final (post-edit/post-regeneration) values.  Dangerous rows are
-highlighted in red; rating cells use green/yellow/red colour coding.
+Columns mirror the CLI worksheet (run_pipeline._WORKSHEET_COLUMNS) so that GUI and
+CLI HTML can be imported interchangeably; a Rating column is appended.
 """
-from typing import List
+from typing import Any, Dict, List
 import html
+import re
 
-from .state_manager import state_manager, RowState
+from .state_manager import state_manager, RowState, _stringify
+from src.run_pipeline import _WORKSHEET_COLUMNS
+
+_GOAL_TAG = re.compile(r'^\[?\s*SG\s*(\d+)\s*\]?\s*[-.:]?\s*', re.I)
 
 
 def export_to_html(run_id: str) -> str:
-    """Generate HTML report with final data only + rating column."""
     run = state_manager.get_run(run_id)
     if not run:
         raise ValueError(f"Run not found: {run_id}")
-
-    rows = state_manager.get_all_rows(run_id)
-    return _build_html(rows, run_id)
+    return _build_html(state_manager.get_all_rows(run_id), run_id)
 
 
-def _escape(text: str) -> str:
-    """HTML-escape text."""
-    return html.escape(text or "")
+def _escape(text: Any) -> str:
+    return html.escape("" if text is None else str(text))
 
 
-def _get_rating_display(rating) -> tuple:
-    """Return (text, css_class) for rating display."""
-    if rating is None:
-        return "-", "rating-unrated"
+# List-type worksheet columns rendered as labeled mini-lists (one item per line).
+_LIST_PREFIX = {"ai_safety_goals": "SG", "evidence": "EV", "open_assumptions": "A"}
+_LIST_KEYS = ("ai_safety_goals", "evidence", "open_assumptions", "measures")
 
-    rating_value = rating.value if hasattr(rating, 'value') else str(rating)
 
-    mapping = {
-        "correct": ("Correct", "rating-correct"),
-        "partially_correct": ("Partial", "rating-partial"),
-        "incorrect": ("Incorrect", "rating-incorrect"),
-        "unrated": ("-", "rating-unrated"),
-    }
-    return mapping.get(rating_value, ("-", "rating-unrated"))
+def _list_items(final: Dict[str, Any], key: str) -> List[tuple]:
+    items: List[tuple] = []
+
+    def add(arr: Any, prefix: str) -> None:
+        n = 0
+        for x in (arr or []) if isinstance(arr, list) else ([arr] if arr else []):
+            if isinstance(x, dict):
+                t = " — ".join(str(v).strip() for v in x.values() if str(v).strip())
+            else:
+                t = str(x).strip()
+            if t:
+                n += 1
+                items.append((f"{prefix}{n}", t))
+
+    if key == "measures":
+        add(final.get("respecifications"), "R")
+        add(final.get("safety_functions"), "SF")
+        add(final.get("passive_operational_measures"), "P")
+    else:
+        add(final.get(key), _LIST_PREFIX.get(key, "#"))
+    return items
+
+
+def _list_cell_html(final: Dict[str, Any], key: str) -> str:
+    items = _list_items(final, key)
+    if not items:
+        return "<td style='color:#bbb;'>—</td>"
+    inner = "".join(
+        f"<div style='padding:3px 0;{'border-top:1px solid #eee;' if i else ''}'>"
+        f"<b style='color:#555;margin-right:4px;'>{_escape(lab)}</b>{_escape(txt)}</div>"
+        for i, (lab, txt) in enumerate(items)
+    )
+    return f"<td>{inner}</td>"
+
+
+def _parse_goal_tag(x: Any) -> tuple:
+    if isinstance(x, dict):
+        s = " — ".join(str(v).strip() for v in x.values() if str(v).strip())
+    else:
+        s = str(x).strip()
+    m = _GOAL_TAG.match(s)
+    if m:
+        return int(m.group(1) or 1), s[m.end():].strip()
+    return 1, s
+
+
+def _measure_groups(final: Dict[str, Any]) -> List[Dict[str, Any]]:
+    raw = final.get("ai_safety_goals")
+    goals = [g for g in raw if str(g).strip()] if isinstance(raw, list) else []
+    ng = max(len(goals), 1)
+    groups = [{"goal": f"SG{k}", "items": []} for k in range(1, ng + 1)]
+
+    def add(arr: Any, cls: str) -> None:
+        counter: Dict[int, int] = {}
+        for x in (arr or []) if isinstance(arr, list) else []:
+            g, text = _parse_goal_tag(x)
+            if not text:
+                continue
+            g = min(max(g, 1), ng)
+            counter[g] = counter.get(g, 0) + 1
+            groups[g - 1]["items"].append((f"{cls}{g}.{counter[g]}", text))
+
+    add(final.get("respecifications"), "R")
+    add(final.get("safety_functions"), "SF")
+    add(final.get("passive_operational_measures"), "P")
+    return groups
+
+
+def _measures_cell_html(final: Dict[str, Any]) -> str:
+    groups = _measure_groups(final)
+    if not any(g["items"] for g in groups):
+        return "<td style='color:#bbb;'>—</td>"
+    blocks = []
+    for i, g in enumerate(groups):
+        head = f"<div style='font-weight:600;color:#555;'>{_escape(g['goal'])}</div>"
+        if g["items"]:
+            body = "".join(
+                f"<div style='padding-left:8px;'><b style='color:#777;margin-right:4px;'>{_escape(lab)}</b>{_escape(txt)}</div>"
+                for lab, txt in g["items"]
+            )
+        else:
+            body = "<div style='padding-left:8px;color:#c80;font-size:12px;'>no measure for this goal</div>"
+        sep = "border-top:1px solid #eee;" if i else ""
+        blocks.append(f"<div style='padding:3px 0;{sep}'>{head}{body}</div>")
+    return f"<td>{''.join(blocks)}</td>"
+
+
+def _display(final: Dict[str, Any], key: str) -> str:
+    if key == "guideword":
+        return _stringify(final.get(key)).replace("_", " ")
+    return _stringify(final.get(key))
+
+
+def _rating_display(rating) -> tuple:
+    value = rating.value if hasattr(rating, "value") else str(rating)
+    return {
+        "correct": ("Correct", "background:#dfd;text-align:center;"),
+        "partially_correct": ("Partial", "background:#ffd;text-align:center;"),
+        "incorrect": ("Incorrect", "background:#fdd;text-align:center;"),
+    }.get(value, ("-", "color:#999;text-align:center;"))
 
 
 def _build_html(rows: List[RowState], run_id: str) -> str:
-    """Build styled HTML table."""
+    ths = "".join(f"<th>{_escape(label)}</th>" for _, label in _WORKSHEET_COLUMNS)
 
-    # Build table rows
-    table_rows = []
-    last_function = None
-    row_num = 0
+    body = []
+    for i, row in enumerate(rows, 1):
+        final = row.final or {}
+        dangerous = bool(final.get("potentially_dangerous"))
+        dbg = "#fdd" if dangerous else "#dfd"
+        dtx = "Yes" if dangerous else "No"
 
-    for row in rows:
-        row_num += 1
+        tds = []
+        for key, _ in _WORKSHEET_COLUMNS:
+            if key == "measures":
+                tds.append(_measures_cell_html(final))
+            elif key in _LIST_KEYS:
+                tds.append(_list_cell_html(final, key))
+            elif key == "guideword":
+                tds.append(f"<td><code>{_escape(_display(final, key))}</code></td>")
+            else:
+                tds.append(f"<td>{_escape(_display(final, key))}</td>")
 
-        # Add separator row when function changes (except for first row)
-        if last_function is not None and row.function != last_function:
-            table_rows.append(
-                "<tr><td colspan='8' style='background:#ddd;height:4px;'></td></tr>"
-            )
-        last_function = row.function
-
-        # Dangerous cell styling
-        if row.potentially_dangerous_final:
-            danger_style = "background:#fdd;text-align:center;"
-            danger_text = "Dangerous"
-        else:
-            danger_style = "background:#dfd;text-align:center;"
-            danger_text = "Not dangerous"
-
-        # Rating display
-        rating_text, rating_class = _get_rating_display(row.rating)
-        rating_style = {
-            "rating-correct": "background:#dfd;text-align:center;",
-            "rating-partial": "background:#ffd;text-align:center;",
-            "rating-incorrect": "background:#fdd;text-align:center;",
-            "rating-unrated": "color:#999;text-align:center;",
-        }.get(rating_class, "color:#999;text-align:center;")
-
-        table_rows.append(
-            f"<tr>"
-            f"<td>{row_num}</td>"
-            f"<td>{_escape(row.function)}</td>"
-            f"<td><code>{_escape(row.guideword)}</code></td>"
-            f"<td>{_escape(row.deviation_final)}</td>"
-            f"<td>{_escape(row.cause_final)}</td>"
-            f"<td>{_escape(row.effect_final)}</td>"
-            f"<td style='{danger_style}'>{danger_text}</td>"
-            f"<td style='{rating_style}'>{rating_text}</td>"
-            f"</tr>"
+        rating_text, rating_style = _rating_display(row.rating)
+        body.append(
+            "<tr>"
+            f"<td>{i}</td>"
+            + "".join(tds)
+            + f"<td style='background:{dbg};text-align:center;'>{dtx}</td>"
+            + f"<td style='{rating_style}'>{rating_text}</td>"
+            "</tr>"
         )
 
-    tbody = "\n".join(table_rows)
-
+    tbody = "\n".join(body)
     return f"""<!doctype html><html><head><meta charset="utf-8">
-<title>HAZOP Results</title>
+<title>AI-HAZOP-8800 Worksheet</title>
 <style>
 body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:20px;}}
 table{{border-collapse:collapse;width:100%;}}
-th,td{{border:1px solid #ddd;padding:8px;vertical-align:top;}}
+th,td{{border:1px solid #ddd;padding:8px;vertical-align:top;font-size:13px;}}
 th{{background:#f5f5f5;text-align:left;}}
 small{{color:#666;}}
 code{{background:#f0f0f0;padding:2px 4px;border-radius:4px;}}
 </style></head><body>
-<h1>HAZOP Results</h1>
+<h1>AI-HAZOP-8800 Worksheet</h1>
 <p><small>Run ID: {_escape(run_id)} | Exported from GUI</small></p>
 <table>
-<thead><tr>
-<th>#</th>
-<th>Function</th>
-<th>Guideword</th>
-<th>Deviation</th>
-<th>Cause</th>
-<th>Effect</th>
-<th>Potentially dangerous</th>
-<th>Rating</th>
-</tr></thead><tbody>
+<thead><tr><th>#</th>{ths}<th>Dangerous</th><th>Rating</th></tr></thead><tbody>
 {tbody}
 </tbody></table></body></html>"""

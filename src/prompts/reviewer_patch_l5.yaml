@@ -1,0 +1,30 @@
+title: AI_HAZOP_REVIEWER_PATCH_L5
+inputs:
+  - rows_l5_json
+  - row_hints_json
+instructions: |
+  You receive CURRENT AI-HAZOP-8800 L5 rows and targeted row-level hints.
+
+  - Return the FULL list of L5 rows, in the SAME order and SAME length.
+  - For targeted row_ids: edit ONLY fields listed in "fields" (subset of: ["ai_safety_goals"]).
+    Keep row_id and all upstream fields UNCHANGED. ai_safety_goals stays a non-empty array of 1–3 goal
+    strings (objectives, not implementations). INTERPRET the suggestion, do not copy it verbatim.
+  - Non-targeted rows: return UNCHANGED (verbatim).
+
+  STRICT OUTPUT: a top-level JSON ARRAY of row OBJECTS (same count as input). No outer wrapper, no prose.
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, ai_safety_goals]
+    properties:
+      row_id: { type: string }
+      ai_safety_goals: { type: array, items: { type: string } }
+constraints: |
+  - Output JSON ONLY. Return the FULL list in the SAME order/length as rows_l5_json.
+  - Non-targeted rows unchanged. ai_safety_goals must be a non-empty array. Do not use the ':' character.
+payload_template: |
+  {
+    "rows_l5": {{rows_l5_json}},
+    "row_hints": {{row_hints_json}}
+  }

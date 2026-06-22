@@ -1,120 +1,79 @@
-title: L1_INIT_FULL_COVERAGE
+title: AI_HAZOP_L1_FAILURE_MODE
 inputs:
-  - functions_json   # JSON array of functions (strings)
-  - guideword_map_json  # JSON object {guideword -> description}
-  - max_devs_per_gw  # integer (e.g., 2)
-  - notes            # optional string
+  - component
+  - component_class
+  - aspect
+  - odd
+  - scenario
+  - aspect_hint
+  - guidewords_json
+  - class_questions_json
+  - notes
 instructions: |
-  Generate HAZOP deviations with FULL guideword coverage.
-  For each FUNCTION and for EACH of the 11 fixed guidewords, produce >= 1 deviation (max {{max_devs_per_gw}}).
-  If a guideword seems inapplicable, still output a row with a conservative deviation and set applicability_score=0.0 with a short applicability_note ("not applicable").
-  Keep function names unchanged. Keep deviations concise and technical.
-  Fixed guidewords and meanings are provided in 'guideword_map_json'.
+  You are performing AI-HAZOP-8800 hazard elicitation on ONE AI component.
+  The analysis unit is the component + aspect, evaluated under the given ODD and scenario.
 
-  You MUST return EXACTLY at least {{expected_min_rows}} rows (i.e., functions_count × 11).
-  Do not aggregate by function. Each row = (function, single guideword, deviation, applicability fields).
-  Write the deviation slightly more descriptive when helpful (about 8–16 words).
-  
-  Make it technically meaningful by referencing a specific component, signal,
-  state, or timing aspect of the deviation. Keep it concise, strictly technical,
-  and avoid generic formulations.
+  TASK: For EACH guideword in "guidewords", produce EXACTLY ONE row describing a concrete,
+  plausible FAILURE MODE — a component-level deviation of the named aspect that the guideword
+  triggers, specific to this component class, ODD, and scenario.
 
-  IMPORTANT: Describe only what deviates from the intended behaviour. Do **not**
-  explain why it happens or mention root causes or failure mechanisms. The
-  'deviation' field should never mention faulty components, leaks,
-  short-circuits, sensor failures, or any other cause. Focus solely on what
-  behaviour is observed to differ from the nominal function.
+  A failure mode is what goes wrong at the COMPONENT itself (a wrong/missing/late/unstable
+  output, input, internal state, etc.). It is NOT yet the vehicle-level hazard (that is L2).
 
-  If notes or reference material are provided, PRIORITIZE domain-specific
-  deviations grounded in the described system over generic formulations.
-  Use component names, signal names, and parameter ranges from the notes.
-  Do **not** include any causes or failure mechanisms from the notes in
-  the deviation description.
+  Use each guideword's "meaning" and "ai_examples" to interpret it, and use the
+  "class_questions" to focus on risks that matter for this component class. Ground every
+  failure mode in the specific scenario and ODD — avoid generic statements.
 
-  Per IEC 61882, guide word application should be a creative exploration of
-  what could deviate, not a rote checklist. For each guideword, consider what
-  specific, non-obvious deviation it reveals for this particular function.
-  Avoid defaulting to the most generic interpretation when a more specific
-  parking-context deviation exists.
+  DISTINCTNESS (critical): each guideword denotes a DIFFERENT kind of deviation, so each
+  failure_mode MUST be substantially different from the others — not the same sentence reworded.
+  Reflect the guideword's specific deviation type, for example:
+    - wrong          an incorrect value (wrong class, wrong position, wrong sign)
+    - late           a correct value that arrives after the safety-relevant deadline
+    - early          an output/action produced too soon or prematurely
+    - intermittent   an output that flickers or alternates between states
+    - frozen         an old value reused as if current (stale)
+    - corrupted      an invalid/damaged value (NaN, Inf, overflow, invalid tensor)
+    - misordered     correct values delivered out of sequence or time-misaligned
+    - inverted       a reversed sign, side, direction, or mapping
+    - uncertain_but_confident  high confidence on an ambiguous or unknown input
+  NEVER reuse the same deviation across guidewords. BAD (unacceptable): "wrong -> The shuttle
+  incorrectly estimates position." and "late -> The shuttle incorrectly estimates position." and
+  "corrupted -> The shuttle incorrectly estimates position." — these are identical and wrong.
 
-  The deviation must name a concrete physical or logical parameter (pressure,
-  torque, speed, flow rate, signal timing, actuation state, temperature,
-  voltage, position) and describe its specific change. Do not write abstract
-  deviations that omit the affected parameter.
-  Ban the following vague phrases in deviation text: "incorrect operation",
-  "abnormal behavior", "improper functioning", "unexpected response". Replace
-  them with specific parameter-level descriptions.
-  For the "reverse" guideword: the deviation must describe a true inversion of
-  direction, polarity, or sequence — not merely a wrong mode or degraded state.
+  Keep each failure_mode to one concise technical sentence (about 12–25 words). Start with a
+  capital letter, end with a period. Do NOT use the ':' character.
 
-  For braking-related functions specifically, the "reverse" guideword:
-    - Does NOT mean: braking in the opposite physical direction, or reverse
-      braking pressure.
-    - MUST represent: inversion of control logic (e.g., activation when the
-      function should be deactivated, deactivation when it should be activated),
-      or polarity inversion in the command signal.
-    - If a true physical reversal is impossible for the function, rewrite the
-      deviation to describe a control-logic or signal-polarity inversion instead.
+  Echo each row's "row_id" and "guideword" exactly as given in "guidewords" (use the guideword
+  "id"). Do not invent new guidewords or skip any.
 
-  For temporal guidewords (early, late, before, after) applied to non-timing
-  functions, interpret them in terms of the function's activation sequence
-  or operational phase. Example: function "Provide brake assist" + guideword
-  "before" → "Brake assist engages before the driver applies the brake pedal."
-  If a guideword truly has no meaningful interpretation for a function, set
-  applicability_score=0.0 and write a conservative minimal deviation.
-
-  EXAMPLE (single function + single guideword):
-  Input: function="Provide ABS braking", guideword="less"
-  Output row:
-  {"row_id":"L1-0","function":"Provide ABS braking","guideword":"less",
-   "deviation":"ABS modulation cycles deliver reduced braking pressure to front calipers during emergency stop.",
-   "applicability_score":1.0,"applicability_note":"directly applicable"}
-
-  STRICT OUTPUT INSTRUCTION:
-    - Output JSON ONLY.
-    - Output MUST be a top-level JSON ARRAY of row objects.
-    - Do NOT wrap in any outer object (no keys like "rows", "data", "items",
-      "result", "output", or "deviations").
-    - Each array element MUST be a JSON object — NEVER a string line.
-    - Do NOT include comments, explanations, or text outside the JSON.
 output_schema: |
   type: array
   items:
     type: object
-    required:
-      - function
-      - guideword
-      - deviation
-      - applicability_score
-      - applicability_note
+    required: [row_id, guideword, failure_mode]
     properties:
-      row_id:
-        type: string
-      function:
-        type: string
-      guideword:
-        type: string
-      deviation:
-        type: string
-      applicability_score:
-        type: number
-      applicability_note:
-        type: string
+      row_id: { type: string }
+      guideword: { type: string }
+      failure_mode: { type: string }
 constraints: |
-  - Output JSON ONLY.
-  - Return a JSON ARRAY (top-level). Do NOT wrap inside keys like "rows", "data", "items", "result", "output", or "deviations".
-  - Each row must contain: row_id, function, guideword, deviation, applicability_score, applicability_note.
-  - guideword must be one of: no|more|less|as well as|part of|reverse|other than|early|late|before|after
-  - Do NOT include commentary, metadata, or code fences.
-  - Number of rows MUST be ≥ (functions × 11 guidewords).
-  - Ban vague words unless made specific: malfunction, failure, issue, error.
-  - Guideword semantics must be reflected in deviation: no=complete absence, more=quantitative excess, less=quantitative deficiency, reverse=logical/physical inversion, early=earlier than intended, late=later than intended, before=out-of-sequence before prerequisite, after=out-of-sequence after needed, as well as=unintended additional behavior, part of=incomplete execution, other than=unintended different behavior.
-  - Deviation must reference a concrete physical or logical parameter change.
-  - Ban in deviation: "incorrect operation", "abnormal behavior", "improper functioning", "unexpected response".
-  - For braking-related "reverse": deviation must describe control-logic or signal-polarity inversion, not physically impossible direction reversal.
+  - Output JSON ONLY: a top-level JSON ARRAY of objects. No markdown, no prose, no outer wrapper.
+  - Produce EXACTLY ONE row per guideword in "guidewords", in the same order.
+  - Each row MUST contain: row_id, guideword, failure_mode.
+  - "guideword" MUST equal one of the provided guideword "id" values.
+  - failure_mode: one technical sentence, component-level deviation, specific to scenario/ODD.
+  - Every failure_mode MUST be substantially different from the others and match its guideword's
+    specific deviation type. Do not reword one deviation across multiple guidewords.
+  - Do NOT describe vehicle-level consequences or harm here (that is L2).
+  - NEVER use the ':' character in failure_mode. Ban vague words (failure, issue, error) unless made specific.
 payload_template: |
   {
-    "functions": {{functions_json}},
-    "guidewords": {{guideword_map_json}},
+    "component": {{component}},
+    "component_class": {{component_class}},
+    "aspect": {{aspect}},
+    "aspect_hazard_hint": {{aspect_hint}},
+    "ODD": {{odd}},
+    "scenario": {{scenario}},
+    "guidewords": {{guidewords_json}},
+    "class_questions": {{class_questions_json}},
     "notes": {{notes}}
   }

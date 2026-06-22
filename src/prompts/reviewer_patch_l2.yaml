@@ -1,81 +1,37 @@
-title: REVIEWER_PATCH_L2_TARGETED
+title: AI_HAZOP_REVIEWER_PATCH_L2
 inputs:
   - rows_l2_json
   - row_hints_json
 instructions: |
-  You receive CURRENT L2 rows and targeted row-level hints.
+  You receive CURRENT AI-HAZOP-8800 L2 rows and targeted row-level hints.
 
   Your job:
   - Return the FULL list of L2 rows, in the SAME order and SAME length.
   - For targeted row_ids:
-      * Edit ONLY fields listed in "fields" (subset of: ["deviation","cause"])
-      * Keep "row_id","function","guideword" UNCHANGED.
-      * Ensure that the function → guideword → deviation → cause chain is coherent and technically plausible.
-      * Use the provided suggestion text (if any) from `row_hints_json` to guide your edits.  When modifying the "cause" field, ensure it directly and mechanistically explains the L1 deviation for that row: identify a specific component or module, describe a concrete failure mechanism (e.g., stuck-high/low, leak, open‑circuit, short‑to‑battery), and show how this failure leads to the deviation.  Write one or two concise, complete sentences.  Focus the cause on the root failure mechanism only; do not append downstream system-level effects or consequences (those belong in L3).
-      * FORMAT: Write causes as complete natural sentences. Do NOT use "Label: text" or "[Category] text" format.
-        Example: "The wheel speed sensor failed due to an open circuit caused by connector pin corrosion from road salt exposure."
+      * Edit ONLY fields listed in "fields"
+        (subset of: ["hazardous_behavior","potential_harm","potentially_dangerous"]).
+      * Keep row_id, guideword, failure_mode and all context fields UNCHANGED.
+      * hazardous_behavior must be a VEHICLE-level unsafe behavior implied by the failure_mode;
+        potential_harm must name who/what is harmed and severity; potentially_dangerous is a boolean.
+      * Use the suggestion text as guidance — INTERPRET it, do not copy it verbatim.
   - Non-targeted rows: return UNCHANGED (verbatim).
 
-  Style & content rules:
-  - CRITICAL: The "suggestion" field contains USER GUIDANCE about what to improve.
-    * DO NOT copy the suggestion text into the cause or deviation fields.
-    * Instead, INTERPRET the suggestion and write NEW technical content.
-    * The output text MUST NOT match the suggestion verbatim.
-    * Example - If suggestion is "make it about pump cavitation":
-      - WRONG: "make it about pump cavitation" (copied verbatim)
-      - RIGHT: "The centrifugal pump experienced cavitation due to insufficient NPSH from a clogged suction strainer, forming vapor pockets that collapsed against the impeller surfaces."
-    * Example - If suggestion is "mention electrical short":
-      - WRONG: "mention electrical short"
-      - RIGHT: "An electrical short circuit developed in the motor winding due to insulation breakdown from prolonged thermal stress."
-    * Example - If suggestion is "use a sensor fusion cause":
-      - WRONG: "use a sensor fusion cause"
-      - RIGHT: "The rear camera and ultrasonic fusion algorithm produced conflicting obstacle
-        distance estimates due to a 40 ms temporal desynchronization between data streams."
-    * Example - If suggestion is "integration failure between ECUs":
-      - WRONG: "integration failure between ECUs"
-      - RIGHT: "The parking ECU read a stale wheel-speed message after CAN bus arbitration loss
-        to a higher-priority powertrain frame, causing the speed estimate to lag by 200 ms."
-  - Write domain-specific, technical text only (concise, component/signal-level).
-  - If a suggestion or hint is vague, infer a plausible, concrete value consistent with the row.
-  - Do NOT enforce cross-row uniqueness; sharing causes across deviations is allowed.
-  
-  If additional context (notes or RAG material) is appended below, use it to
-  ground your corrections in the described domain:
-  - Prefer component names and failure modes from the context.
-  - Use signal names and fault categories from the context.
-  - Match domain-specific terminology from the context.
-  Do not copy context verbatim.
-
-  STRICT OUTPUT INSTRUCTION:
-    Output a top-level JSON ARRAY of row OBJECTS (same count as input subset).
-    Do not wrap in an outer object. Do not output prose. Use standard JSON.
+  STRICT OUTPUT: a top-level JSON ARRAY of row OBJECTS (same count as input). No outer wrapper, no prose.
 output_schema: |
   type: array
   items:
     type: object
-    required: [row_id, function, guideword, deviation, cause]
+    required: [row_id, hazardous_behavior, potential_harm, potentially_dangerous]
     properties:
       row_id: { type: string }
-      function: { type: string }
-      guideword: { type: string }
-      deviation: { type: string }
-      cause: { type: string }
+      hazardous_behavior: { type: string }
+      potential_harm: { type: string }
+      potentially_dangerous: { type: boolean }
 constraints: |
-  - Output JSON ONLY (an array of rows).
-  - Return the FULL list in the SAME order/length as rows_l2_json.
-  - Non-targeted rows must be byte-for-byte unchanged.
-  - Edit ONLY the fields listed for the targeted row_id(s).
-  - Forbidden meta phrases inside fields: "ensure", "make sure", "provide", "be specific",
-    "value error", "field must not be empty", "placeholder", "nominal", "normal",
-    "no change", "unchanged".
-  - Write the 'cause' as complete English sentences (capital letter start, period end).
-  - NEVER use the ':' character or bracket prefixes in cause text.
-  - Describe naturally: "The <component> experienced <failure> due to <root mechanism>."
-  - Cause should be 10–20 words; one or two complete sentences.
-  - The failure mechanism must be physically compatible with the component type.
-  - The cause must explain HOW the failure mechanism produces the deviation.
-  - Ban vague words unless made specific: malfunction, failure, issue, error.
-  - Reject braking physics contradictions: braking activation cannot cause acceleration; increased braking force cannot cause unintended acceleration.
+  - Output JSON ONLY (an array of rows). Return the FULL list in the SAME order/length as rows_l2_json.
+  - Non-targeted rows must be unchanged. Edit ONLY the listed fields for the targeted row_id(s).
+  - potentially_dangerous MUST be a JSON boolean. Never use the ':' character.
+  - Ban vague words (failure, issue, error) unless made specific.
 payload_template: |
   {
     "rows_l2": {{rows_l2_json}},

@@ -1,0 +1,31 @@
+title: "AI-HAZOP L4 reviewer"
+inputs:
+  - validator_report
+  - rows_l4_json
+instructions: |
+  Review AI-HAZOP-8800 L4 acceptance rows. Each row holds the hazard description, the code-computed
+  initial_risk and risk_status, the chosen safety_decision, and an acceptance_rationale.
+
+  Flag rows where:
+    - safety_decision contradicts risk_status (e.g. ACCEPT while risk_status is ABOVE the target, or
+      IMPROVE/RESTRICT/INVESTIGATE while risk_status is ACCEPTABLE without a stated reason),
+    - the chosen lever is implausible for the hazard (e.g. RESTRICT proposed for a failure whose
+      exposure/severity cannot realistically be reduced operationally),
+    - acceptance_rationale does not justify the decision.
+
+  Keep row_id and upstream fields unchanged.
+
+  Output policy:
+  - All fine: {"decision":"OK","scope":"L4","issues":[],"suggestions":[],"suggestions_by_row":[]}
+  - Otherwise: {"decision":"RETURN", ...} with >=1 items in suggestions_by_row, each like
+    {"row_id":"L4-3","fields":["safety_decision","acceptance_rationale"],"problem":"...","suggestion":"..."}
+payload_template: |
+  {"report": {{validator_report}}, "rows": {{rows_l4_json}}}
+output_schema: |
+  {"decision":"OK|RETURN|ESCALATE","scope":"L4","issues":["..."],"suggestions":["..."],
+   "suggestions_by_row":[{"row_id":"L4-3","fields":["safety_decision"],"problem":"...","suggestion":"..."}]}
+constraints: |
+  - When decision="RETURN": suggestions_by_row length MUST be >=1.
+  - Keep row_id and upstream fields unchanged.
+  - safety_decision must be one of ACCEPT, IMPROVE, RESTRICT, INVESTIGATE and consistent with risk_status.
+  - Do not use the ':' character in suggested text.

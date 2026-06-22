@@ -1,114 +1,59 @@
-// state.js - Global state management for the HAZOP GUI
+// state.js - Global state for the AI-HAZOP-8800 GUI
 
 const AppState = {
-    // Current run
     runId: null,
     status: null,
 
     // Configuration
     provider: 'openai',
     model: '',
-    functions: [],
     notes: '',
-    maxDevsPerGw: 2,
-    ragEnabled: false,
-    ragEmbedder: 'local',
-    ragPaths: [],
+    contexts: [emptyContext()],   // list of {component, component_class, aspect, odd, scenario}
+    guidewords: [],               // selected override ids ([] = catalogue default)
 
-    // Results
+    // Catalogue data for form dropdowns
+    catalogues: { component_classes: [], aspects: [], guidewords: [], examples: [] },
+
+    // Results (RowData objects with original/final maps)
     rows: [],
 
-    // Key status per provider
-    keyStatus: {
-        openai: false,
-        gemini: false,
-        ollama: true, // Ollama doesn't need a key
-        vllm: false,
-    },
+    keyStatus: { openai: false, gemini: false, groq: false },
 
-    // Currently editing row
     editingRowId: null,
-
-    // Polling interval
     pollInterval: null,
-
-    // Selected rows for bulk operations
     selectedRows: new Set(),
 
-    // Reset to initial state
     reset() {
         this.runId = null;
         this.status = null;
         this.rows = [];
         this.editingRowId = null;
         this.selectedRows = new Set();
-        if (this.pollInterval) {
-            clearInterval(this.pollInterval);
-            this.pollInterval = null;
-        }
+        if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
     },
 
-    // Toggle row selection
     toggleRowSelection(rowId, selected) {
-        if (selected) {
-            this.selectedRows.add(rowId);
-        } else {
-            this.selectedRows.delete(rowId);
-        }
+        if (selected) this.selectedRows.add(rowId); else this.selectedRows.delete(rowId);
         this.onSelectionChange();
     },
+    selectAllRows() { this.rows.forEach(r => this.selectedRows.add(r.row_id)); this.onSelectionChange(); },
+    clearSelection() { this.selectedRows = new Set(); this.onSelectionChange(); },
+    getSelectedRowIds() { return [...this.selectedRows]; },
+    isRowSelected(rowId) { return this.selectedRows.has(rowId); },
+    onSelectionChange() {},
 
-    // Select all rows
-    selectAllRows() {
-        this.rows.forEach(row => this.selectedRows.add(row.row_id));
-        this.onSelectionChange();
-    },
-
-    // Clear all selections
-    clearSelection() {
-        this.selectedRows = new Set();
-        this.onSelectionChange();
-    },
-
-    // Get selected row IDs as array
-    getSelectedRowIds() {
-        return [...this.selectedRows];
-    },
-
-    // Check if a row is selected
-    isRowSelected(rowId) {
-        return this.selectedRows.has(rowId);
-    },
-
-    // Callback for selection changes (set by ResultsTable)
-    onSelectionChange() {
-        // Will be overridden by ResultsTable
-    },
-
-    // Set functions from parsed input
-    setFunctions(funcs) {
-        this.functions = funcs.filter(f => f.trim());
-    },
-
-    // Get row by ID
-    getRow(rowId) {
-        return this.rows.find(r => r.row_id === rowId);
-    },
-
-    // Update row in state
+    getRow(rowId) { return this.rows.find(r => r.row_id === rowId); },
     updateRow(rowData) {
         const idx = this.rows.findIndex(r => r.row_id === rowData.row_id);
-        if (idx >= 0) {
-            this.rows[idx] = rowData;
-        }
+        if (idx >= 0) this.rows[idx] = rowData;
     },
 
-    // Check if required key is configured
-    isKeyConfigured() {
-        if (this.provider === 'ollama') return true;
-        return this.keyStatus[this.provider] || false;
-    }
+    isKeyConfigured() { return this.keyStatus[this.provider] || false; },
 };
 
-// Make globally available
+function emptyContext() {
+    return { component: '', component_class: '', aspect: '', odd: '', scenario: '' };
+}
+
 window.AppState = AppState;
+window.emptyContext = emptyContext;

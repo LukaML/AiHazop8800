@@ -1,0 +1,8 @@
+# AI-HAZOP-8800 analysis context — reproduces the methodology White Paper §14 cyclist example.
+component: Camera Object Detection
+component_class: Camera-ObjectDetection
+aspect: Outputs
+odd: |
+  University campus shuttle. Maximum 15 km/h. Daylight only. No dense fog.
+  Mixed pedestrian and cyclist traffic, shared low-speed roads.
+scenario: Cyclist behind a parked van at a crossing the shuttle is approaching.

@@ -1,0 +1,72 @@
+# AI-HAZOP-8800 multi-component analysis input (uploadable in the GUI, or pick it
+# from the "Load example" dropdown).
+#
+# Format: an object with a "components" list. Each component is one analysis unit and
+# MUST have all five fields:
+#   component        free-text name of the AI component under analysis
+#   component_class  a taxonomy class id (see src/catalogues/taxonomy.yaml -> classes)
+#   aspect           a taxonomy aspect id (Inputs | Outputs | Internal-States |
+#                    Model-Artefacts | Training-Basis | Runtime-Platform | Downstream-Interface)
+#   odd              the operational design domain slice the analysis assumes
+#   scenario         a concrete operating scenario to reason about
+#
+# A single component file is also valid (just the five fields at top level), but this
+# example shows several components of a low-speed campus shuttle so you can see how a
+# multi-component worksheet looks.
+
+components:
+  - component: Camera Object Detection
+    component_class: Camera-ObjectDetection
+    aspect: Outputs
+    odd: |
+      University campus shuttle. Max 15 km/h. Daylight only, no dense fog.
+      Mixed pedestrian and cyclist traffic on shared low-speed roads.
+    scenario: A cyclist is hidden behind a parked van at a crossing the shuttle approaches.
+
+  - component: Camera Semantic Segmentation
+    component_class: Camera-Segmentation
+    aspect: Outputs
+    odd: |
+      Campus shuttle, max 15 km/h, daylight. Shared roads with curbs, planters,
+      painted markings and frequent low obstacles.
+    scenario: A low curb edge next to a pedestrian zone is mislabelled as drivable road.
+
+  - component: Lidar Obstacle Perception
+    component_class: Lidar
+    aspect: Inputs
+    odd: |
+      Campus shuttle, max 15 km/h. Light rain and spray possible; reflective wet
+      surfaces and occasional steam from vents.
+    scenario: Spray and a wet manhole create sparse returns where a child is standing.
+
+  - component: Multi-Sensor Fusion
+    component_class: SensorFusion
+    aspect: Internal-States
+    odd: |
+      Campus shuttle, max 15 km/h. Camera, lidar and radar with occasional
+      disagreement near occlusions and at sensor field-of-view edges.
+    scenario: Camera and lidar disagree about a pedestrian emerging between two vehicles.
+
+  - component: Behavior Planner
+    component_class: Planning-Behavior
+    aspect: Outputs
+    odd: |
+      Campus shuttle, max 15 km/h, shared roads with unmarked crossings and
+      people who step out unexpectedly.
+    scenario: An unmarked crossing where a pedestrian steps out as the shuttle approaches.
+
+  - component: Braking Controller
+    component_class: Control-Braking
+    aspect: Outputs
+    odd: |
+      Campus shuttle, max 15 km/h. Smooth and occasionally wet asphalt; short
+      stopping distances expected.
+    scenario: An emergency stop is requested for a pedestrian close ahead on damp asphalt.
+
+  - component: Ego Pose Estimation
+    component_class: Localization-PoseEstimation
+    aspect: Internal-States
+    odd: |
+      Campus shuttle, max 15 km/h. GNSS degraded between tall buildings; relies
+      on lidar and wheel odometry in those zones.
+    scenario: GNSS drops out in a narrow corridor between buildings near a busy footpath.

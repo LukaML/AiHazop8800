@@ -1,0 +1,91 @@
+# AI component taxonomy (methodology White Paper 1, §3).
+# Used to select class-specific question sets. A component may belong to more than
+# one class; in that case apply all relevant question sets.
+# `id` matches the keys in class_questions.yaml.
+
+classes:
+  - id: Camera-Input
+    purpose: "Image acquisition and preprocessing"
+    typical_inputs: "Raw frames, camera health, exposure, intrinsic/extrinsic calibration"
+    typical_outputs: "Image tensor, metadata, quality indicators"
+  - id: Camera-Segmentation
+    purpose: "Pixel/region semantic classification"
+    typical_inputs: "Image/BEV tensors"
+    typical_outputs: "Road, lane, curb, pedestrian, cyclist, vehicle, background masks"
+  - id: Camera-ObjectDetection
+    purpose: "Detection and classification of objects"
+    typical_inputs: "Images, ROIs, priors"
+    typical_outputs: "Bounding boxes, classes, confidence, object counts"
+  - id: Camera-Tracking
+    purpose: "Temporal association of detections"
+    typical_inputs: "Detections, previous tracks, ego motion"
+    typical_outputs: "Track IDs, velocities, lifecycles, object histories"
+  - id: Lidar
+    purpose: "Point-cloud perception"
+    typical_inputs: "Point clouds, ego motion, calibration"
+    typical_outputs: "3D objects, free space, obstacle clusters"
+  - id: Radar
+    purpose: "Radar object processing"
+    typical_inputs: "Radar returns, Doppler, ego motion"
+    typical_outputs: "Objects, range, relative velocity, confidence"
+  - id: Ultrasonic
+    purpose: "Short-range obstacle perception"
+    typical_inputs: "Ultrasonic echoes, vehicle speed"
+    typical_outputs: "Near-field obstacle presence/distance"
+  - id: SensorFusion
+    purpose: "Multi-sensor association and interpretation"
+    typical_inputs: "Camera/lidar/radar/ultrasonic/map/object data"
+    typical_outputs: "Fused objects, confidence, uncertainty, free space"
+  - id: Planning-Route
+    purpose: "Route and mission planning"
+    typical_inputs: "Map, destination, ODD limits"
+    typical_outputs: "Route, lane-level path, stop/pickup points"
+  - id: Planning-Behavior
+    purpose: "Tactical decisions"
+    typical_inputs: "World model, rules, prediction, route"
+    typical_outputs: "Yield/go/stop/lane-change/overtake decisions"
+  - id: Planning-Trajectory
+    purpose: "Motion trajectory generation"
+    typical_inputs: "Behavior decision, objects, map, ego state"
+    typical_outputs: "Trajectory, speed profile, constraints"
+  - id: Control-Command
+    purpose: "Actuator command generation"
+    typical_inputs: "Trajectory, ego state, actuator feedback"
+    typical_outputs: "Steer/brake/accel/torque commands"
+  - id: Control-Dynamics
+    purpose: "Vehicle dynamics control"
+    typical_inputs: "State estimates, model, road condition"
+    typical_outputs: "Stabilized path following and dynamic behavior"
+  - id: Control-Braking
+    purpose: "AI-influenced braking"
+    typical_inputs: "Objects, trajectory, speed, friction estimate"
+    typical_outputs: "Brake request, deceleration, stop decision"
+  - id: Control-Acceleration
+    purpose: "AI-influenced acceleration"
+    typical_inputs: "Objects, route, speed target, gap"
+    typical_outputs: "Throttle/torque/accel request"
+  - id: Localization-HDMap
+    purpose: "Map-based localization and semantic map use"
+    typical_inputs: "HD map, GNSS, perception landmarks"
+    typical_outputs: "Lane/map relation, semantic priors, ODD/geofence"
+  - id: Localization-PoseEstimation
+    purpose: "Ego pose estimation"
+    typical_inputs: "GNSS, IMU, wheel odometry, lidar/camera localization"
+    typical_outputs: "Position, heading, covariance, lane-relative pose"
+
+# AI component aspects (methodology §2.2). The analysis unit is component + aspect.
+aspects:
+  - id: Inputs
+    hazard_contribution: "Missing, degraded, delayed, misordered, biased, corrupted, or OOD input can cause unsafe AI output."
+  - id: Outputs
+    hazard_contribution: "Wrong, late, unstable, overconfident, stale, or inconsistent output can mislead downstream functions."
+  - id: Internal-States
+    hazard_contribution: "State contamination, drift, hysteresis, hanging states, delayed updates, or unsafe mode transitions."
+  - id: Model-Artefacts
+    hazard_contribution: "Version mismatch, threshold brittleness, quantization error, non-bit-exactness, incompatible preprocessing."
+  - id: Training-Basis
+    hazard_contribution: "Dataset gaps, bias, overfitting, shortcut learning, poor generalization, sim-to-real gap."
+  - id: Runtime-Platform
+    hazard_contribution: "Deadline miss, thermal throttling, memory pressure, stale messages, resource contention, invalid tensors."
+  - id: Downstream-Interface
+    hazard_contribution: "Valid-looking but unsafe abstraction, unit/sign errors, missing uncertainty, misuse by planner/control."

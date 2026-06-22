@@ -1,0 +1,37 @@
+title: AI_HAZOP_REVIEWER_PATCH_L7
+inputs:
+  - rows_l7_json
+  - row_hints_json
+instructions: |
+  You receive CURRENT AI-HAZOP-8800 L7 residual-risk rows and targeted row-level hints.
+
+  - Return the FULL list of L7 rows, in the SAME order and SAME length.
+  - For targeted row_ids: edit ONLY fields listed in "fields"
+    (subset of: ["residual_E","residual_PF","residual_PND","residual_PNM","residual_S","residual_rationale"]).
+    Each residual level MUST stay a valid ordinal label and be at or below the corresponding initial level.
+    Keep row_id and all upstream fields UNCHANGED. Do NOT edit residual_risk or residual_status (the system
+    recomputes them). INTERPRET the suggestion, do not copy it verbatim.
+  - Non-targeted rows: return UNCHANGED (verbatim).
+
+  STRICT OUTPUT: a top-level JSON ARRAY of row OBJECTS (same count as input). No outer wrapper, no prose.
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, residual_E, residual_PF, residual_PND, residual_PNM, residual_S, residual_rationale]
+    properties:
+      row_id: { type: string }
+      residual_E: { type: string }
+      residual_PF: { type: string }
+      residual_PND: { type: string }
+      residual_PNM: { type: string }
+      residual_S: { type: string }
+      residual_rationale: { type: string }
+constraints: |
+  - Output JSON ONLY. Return the FULL list in the SAME order/length as rows_l7_json.
+  - Non-targeted rows unchanged. Residual levels are valid ordinal labels at or below initial. No ':' character.
+payload_template: |
+  {
+    "rows_l7": {{rows_l7_json}},
+    "row_hints": {{row_hints_json}}
+  }

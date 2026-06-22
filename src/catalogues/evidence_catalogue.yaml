@@ -1,0 +1,37 @@
+# Evidence and test catalogue (methodology White Paper 1, §11).
+# L8 links each proposed measure to evidence types and typical test activities.
+
+evidence_types:
+  - id: DatasetAudit
+    purpose: "Show that training/validation data support the declared ODD and scenarios."
+    test_activities: "Coverage matrix, class balance, slice performance, label quality review, synthetic/real split, independence checks."
+  - id: ScenarioValidation
+    purpose: "Show behavior in nominal, critical, edge, and boundary scenarios."
+    test_activities: "Closed-loop simulation, track tests, replay tests, corner cases, rare object configurations."
+  - id: MetamorphicTesting
+    purpose: "Find unknown brittleness without needing perfect ground truth."
+    test_activities: "Brightness, contrast, noise, occlusion, scale, resolution, frame-rate, background changes."
+  - id: FaultInjection
+    purpose: "Demonstrate monitors and fallbacks."
+    test_activities: "Missing frames, stale outputs, timestamp disorder, corrupt values, invalid tensors, sensor degradation."
+  - id: UncertaintyOODTesting
+    purpose: "Show detection of situations outside reliable knowledge."
+    test_activities: "OOD score validation, confidence calibration, high-confidence false-negative mining, novelty clustering."
+  - id: RuntimeVerification
+    purpose: "Show timing and platform behavior."
+    test_activities: "WCET, load/thermal tests, memory pressure, quantization, non-bit-exactness, accelerator comparison."
+  - id: CrossComponentConsistency
+    purpose: "Show that contradictions are detected and safely handled."
+    test_activities: "Count vs boxes, perception vs map, camera vs lidar/radar, planner vs uncertainty, fallback independence."
+  - id: SafetyCaseTraceability
+    purpose: "Connect hazards to goals, requirements, tests, evidence, and residual risk."
+    test_activities: "Trace matrix, argumentation, assumptions, limitations, open issues."
+  - id: FieldMonitoring
+    purpose: "Detect residual unknown-unknowns after deployment."
+    test_activities: "Disengagement analysis, near-miss mining, fallback trends, route clusters, no-fault-found investigations."
+
+# Hint: which evidence type typically supports which measure class.
+measure_to_evidence:
+  Respecification: [DatasetAudit, ScenarioValidation, MetamorphicTesting, UncertaintyOODTesting]
+  SafetyFunction: [FaultInjection, RuntimeVerification, CrossComponentConsistency]
+  PassiveOperational: [FieldMonitoring, SafetyCaseTraceability, ScenarioValidation]

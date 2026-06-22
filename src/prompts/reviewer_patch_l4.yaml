@@ -1,0 +1,36 @@
+title: AI_HAZOP_REVIEWER_PATCH_L4
+inputs:
+  - rows_l4_json
+  - row_hints_json
+instructions: |
+  You receive CURRENT AI-HAZOP-8800 L4 acceptance rows and targeted row-level hints.
+
+  Your job:
+  - Return the FULL list of L4 rows, in the SAME order and SAME length.
+  - For targeted row_ids:
+      * Edit ONLY fields listed in "fields" (subset of: ["safety_decision","acceptance_rationale"]).
+      * safety_decision MUST remain one of: ACCEPT, IMPROVE, RESTRICT, INVESTIGATE, and consistent
+        with the row's risk_status.
+      * Keep row_id and all upstream fields (risk factors, initial_risk, risk_status, hazard) UNCHANGED.
+      * Use the suggestion text as guidance — INTERPRET it, do not copy it verbatim.
+  - Non-targeted rows: return UNCHANGED (verbatim).
+
+  STRICT OUTPUT: a top-level JSON ARRAY of row OBJECTS (same count as input). No outer wrapper, no prose.
+output_schema: |
+  type: array
+  items:
+    type: object
+    required: [row_id, safety_decision, acceptance_rationale]
+    properties:
+      row_id: { type: string }
+      safety_decision: { type: string }
+      acceptance_rationale: { type: string }
+constraints: |
+  - Output JSON ONLY (an array of rows). Return the FULL list in the SAME order/length as rows_l4_json.
+  - Non-targeted rows must be unchanged. Edit ONLY the listed fields for the targeted row_id(s).
+  - safety_decision must be one of ACCEPT, IMPROVE, RESTRICT, INVESTIGATE. Never use the ':' character.
+payload_template: |
+  {
+    "rows_l4": {{rows_l4_json}},
+    "row_hints": {{row_hints_json}}
+  }

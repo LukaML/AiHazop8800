@@ -13,7 +13,13 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from .routes import settings_router, analysis_router, rows_router, export_router
+from .routes import (
+    settings_router,
+    analysis_router,
+    rows_router,
+    export_router,
+    catalogues_router,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -34,6 +40,7 @@ app.include_router(settings_router)
 app.include_router(analysis_router)
 app.include_router(rows_router)
 app.include_router(export_router)
+app.include_router(catalogues_router)
 
 # Static files directory
 STATIC_DIR = Path(__file__).parent / "static"
