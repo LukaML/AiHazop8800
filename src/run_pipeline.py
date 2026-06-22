@@ -26,7 +26,7 @@ from .catalogue_loader import (
     get_aspect_hint,
     load_catalogue,
 )
-from .row_utils import _suffix
+from .row_utils import _suffix, _is_meta_text, _scrub_meta
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +100,9 @@ def assemble_worksheet(state_out: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     def _join(v):
         if isinstance(v, list):
-            return "; ".join(str(x).strip() for x in v if str(x).strip())
-        return str(v or "")
+            return "; ".join(s for s in (str(x).strip() for x in v) if s and not _is_meta_text(s))
+        s = str(v or "")
+        return "" if _is_meta_text(s) else s
 
     def _measures(r6):
         parts = []
@@ -116,6 +117,9 @@ def assemble_worksheet(state_out: Dict[str, Any]) -> List[Dict[str, Any]]:
         sfx = _suffix(r1.get("row_id"))
         r2, r3, r4 = by2.get(sfx, {}), by3.get(sfx, {}), by4.get(sfx, {})
         r5, r6, r7, r8 = by5.get(sfx, {}), by6.get(sfx, {}), by7.get(sfx, {}), by8.get(sfx, {})
+        # Coverage: every configured guideword (every L1 row) is kept so the worksheet
+        # has exactly one row per guideword. Invalid L1 rows are still blocked from
+        # downstream phases (see graph_full._gen_l2); meta text is scrubbed below.
         dangerous = bool(r2.get("potentially_dangerous", False))
         ir = r3.get("initial_risk")
         rr = r7.get("residual_risk")
@@ -126,9 +130,9 @@ def assemble_worksheet(state_out: Dict[str, Any]) -> List[Dict[str, Any]]:
             "odd": r1.get("odd", ""),
             "scenario": r1.get("scenario", ""),
             "guideword": r1.get("guideword", ""),
-            "failure_mode": r1.get("failure_mode", ""),
-            "hazardous_behavior": r2.get("hazardous_behavior", ""),
-            "potential_harm": r2.get("potential_harm", ""),
+            "failure_mode": _scrub_meta(r1.get("failure_mode", "")),
+            "hazardous_behavior": _scrub_meta(r2.get("hazardous_behavior", "")),
+            "potential_harm": _scrub_meta(r2.get("potential_harm", "")),
             "potentially_dangerous": dangerous,
             "initial_risk": ("%.2e" % ir) if isinstance(ir, (int, float)) else "",
             "risk_status": r3.get("risk_status", "") if dangerous else "",

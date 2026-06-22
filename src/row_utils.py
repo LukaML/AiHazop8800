@@ -14,10 +14,50 @@ prefix (L1, L2, L3) and LLMs sometimes use the wrong one.
 from __future__ import annotations
 import json
 import logging
+import re
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Unmistakable reviewer/validator/repair "meta" text that must NEVER appear in a
+# worksheet field. Kept deliberately narrow (multi-word phrases) so it cannot match
+# legitimate HAZOP content such as a safety goal beginning "Ensure a cyclist ...".
+META_PATTERNS = re.compile(
+    r"ensure consistency"
+    r"|consistency between (the )?risk"
+    r"|risk[_ ]status and safety[_ ]decision"
+    r"|fix (the )?decision"
+    r"|check (the )?risk[_ ]status"
+    r"|repair instruction"
+    r"|reviewer (comment|hint|message|suggestion)"
+    r"|validator (hint|message|comment)"
+    r"|validation instruction",
+    re.I,
+)
+
+
+def _is_meta_text(value: Any) -> bool:
+    """True if ``value`` is a string containing unmistakable reviewer/validator meta text."""
+    return isinstance(value, str) and bool(META_PATTERNS.search(value))
+
+
+def _scrub_meta(value: Any) -> Any:
+    """Last-resort output guard: blank any field value that is reviewer/validator meta text.
+
+    Strings matching META_PATTERNS become ""; list items are scrubbed and dropped if
+    they become empty; other values pass through unchanged.
+    """
+    if isinstance(value, list):
+        out = []
+        for x in value:
+            s = _scrub_meta(x)
+            if not (isinstance(s, str) and not s.strip()):
+                out.append(s)
+        return out
+    if _is_meta_text(value):
+        return ""
+    return value
 
 # Common dict keys that LLMs wrap row arrays in.  Used by _ensure_rows_list,
 # validators.py, and llm_client.py to unwrap {"rows": [...]} → [...].

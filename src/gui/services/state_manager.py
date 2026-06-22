@@ -15,7 +15,7 @@ import uuid
 import logging
 from copy import deepcopy
 
-from src.row_utils import _suffix
+from src.row_utils import _suffix, _scrub_meta
 from src.risk_model import compute_risk, FACTORS
 
 from ..models import RowData, Rating, AnalysisStatus
@@ -110,6 +110,8 @@ def merge_state_rows(state: Dict[str, Any]) -> List[Dict[str, Any]]:
                 for k, v in src.items():
                     if k != "row_id":
                         merged[k] = v
+        # Final safety net: never surface reviewer/validator meta text in the GUI.
+        merged = {k: _scrub_meta(v) for k, v in merged.items()}
         out.append(merged)
     return out
 
@@ -223,6 +225,8 @@ class StateManager:
         run.states = [deepcopy(s) for s in states]
         run.rows.clear()
         for ci, state in enumerate(run.states):
+            # Coverage: keep one row per configured guideword (do not omit). Invalid L1
+            # rows are still blocked from downstream phases in graph_full._gen_l2.
             for ordinal, merged in enumerate(merge_state_rows(state), start=1):
                 cid = _canonical_id(ci, str(merged.get("row_id")))
                 # Display id: leading number = component (1-based), trailing = row in it.

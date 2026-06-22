@@ -670,8 +670,12 @@ def _patch_rows(
         result = _ensure_rows_list(obj)
         result = _ensure_list_of_dicts(result, stage=f"REVIEWER_PATCH_{stage}")
 
-        # For human source, check for verbatim copy and retry if needed (per batch)
-        if source == "human" and target_fields:
+        # Check for verbatim copy and retry if needed (per batch). This runs for BOTH
+        # human and automated patches: automated repairs pass the reviewer/holistic
+        # suggestion as the hint, and the LLM sometimes copies that instruction text
+        # straight into a field (e.g. "Ensure consistency between risk_status and
+        # safety_decision." landing in failure_mode). Detect and regenerate.
+        if target_fields:
             for retry in range(_MAX_VERBATIM_RETRIES):
                 problematic_ids = _detect_verbatim_copy(result, batch_hints, target_fields)
                 if not problematic_ids:

@@ -97,16 +97,31 @@ def ai_l1_generate(
                 out[gid] = fm
         return out
 
-    fm_by_gw = _call(guidewords)
+    # Generate in small guideword batches so a long prompt + many guidewords cannot
+    # truncate the output and silently drop the first/last guidewords (FIX: coverage).
+    GW_BATCH = 6
+    fm_by_gw: Dict[str, str] = {}
+    for i in range(0, len(guidewords), GW_BATCH):
+        sub = guidewords[i:i + GW_BATCH]
+        try:
+            fm_by_gw.update(_call(sub))
+        except Exception as exc:
+            logger.warning("L1_INIT: batch %d failed: %s", i // GW_BATCH, exc)
 
-    # Coverage retry for any guideword the model missed.
+    # Coverage retry: retry each missing guideword INDIVIDUALLY so one bad token in a
+    # batch can't leave a whole set of rows with an empty failure_mode.
     missing = [g for g in guidewords if g["id"] not in fm_by_gw]
     if missing:
-        logger.warning("L1_INIT: %d guidewords missing, retrying", len(missing))
-        try:
-            fm_by_gw.update(_call(missing))
-        except Exception as exc:
-            logger.warning("L1_INIT: coverage retry failed: %s", exc)
+        logger.warning("L1_INIT: %d guidewords missing, retrying individually", len(missing))
+        for g in missing:
+            try:
+                fm_by_gw.update(_call([g]))
+            except Exception as exc:
+                logger.warning("L1_INIT: coverage retry failed for %s: %s", g["id"], exc)
+    still_missing = [g["id"] for g in guidewords if g["id"] not in fm_by_gw]
+    if still_missing:
+        logger.error("L1_INIT: %d guideword(s) still empty (will be blocked downstream): %s",
+                     len(still_missing), still_missing)
 
     # Assemble canonical rows in guideword order with stamped context + row_ids.
     rows: List[Dict[str, Any]] = []

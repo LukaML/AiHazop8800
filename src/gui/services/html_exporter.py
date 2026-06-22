@@ -12,6 +12,7 @@ from .state_manager import state_manager, RowState, _stringify
 from src.run_pipeline import _WORKSHEET_COLUMNS
 
 _GOAL_TAG = re.compile(r'^\[?\s*SG\s*(\d+)\s*\]?\s*[-.:]?\s*', re.I)
+_MEASURE_ID_RE = re.compile(r'^\((SF|R|P)\s*\d+\)\s*', re.I)
 
 
 def export_to_html(run_id: str) -> str:
@@ -89,8 +90,16 @@ def _measure_groups(final: Dict[str, Any]) -> List[Dict[str, Any]]:
             if not text:
                 continue
             g = min(max(g, 1), ng)
-            counter[g] = counter.get(g, 0) + 1
-            groups[g - 1]["items"].append((f"{cls}{g}.{counter[g]}", text))
+            m = _MEASURE_ID_RE.match(text)
+            if m:
+                label = re.sub(r"[()\s]", "", m.group(0)).upper()   # explicit id e.g. SF1
+                text = text[m.end():].strip()
+            else:
+                counter[g] = counter.get(g, 0) + 1
+                label = f"{cls}{g}.{counter[g]}"                     # derived fallback
+            if not text:
+                continue
+            groups[g - 1]["items"].append((label, text))
 
     add(final.get("respecifications"), "R")
     add(final.get("safety_functions"), "SF")
@@ -99,19 +108,19 @@ def _measure_groups(final: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _measures_cell_html(final: Dict[str, Any]) -> str:
-    groups = _measure_groups(final)
-    if not any(g["items"] for g in groups):
+    # Only render goals that actually have measures (every goal is covered by the
+    # L6 validator, so this never silently hides a gap in valid output and never
+    # emits a 'no measure for this goal' placeholder).
+    groups = [g for g in _measure_groups(final) if g["items"]]
+    if not groups:
         return "<td style='color:#bbb;'>—</td>"
     blocks = []
     for i, g in enumerate(groups):
         head = f"<div style='font-weight:600;color:#555;'>{_escape(g['goal'])}</div>"
-        if g["items"]:
-            body = "".join(
-                f"<div style='padding-left:8px;'><b style='color:#777;margin-right:4px;'>{_escape(lab)}</b>{_escape(txt)}</div>"
-                for lab, txt in g["items"]
-            )
-        else:
-            body = "<div style='padding-left:8px;color:#c80;font-size:12px;'>no measure for this goal</div>"
+        body = "".join(
+            f"<div style='padding-left:8px;'><b style='color:#777;margin-right:4px;'>{_escape(lab)}</b>{_escape(txt)}</div>"
+            for lab, txt in g["items"]
+        )
         sep = "border-top:1px solid #eee;" if i else ""
         blocks.append(f"<div style='padding:3px 0;{sep}'>{head}{body}</div>")
     return f"<td>{''.join(blocks)}</td>"

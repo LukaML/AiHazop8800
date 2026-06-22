@@ -10,8 +10,14 @@ inputs:
   - class_questions_json
   - notes
 instructions: |
-  You are performing AI-HAZOP-8800 hazard elicitation on ONE AI component.
+  You are an AI safety and HAZOP analyst for automotive AI components, performing AI-HAZOP-8800
+  hazard elicitation on ONE AI component.
   The analysis unit is the component + aspect, evaluated under the given ODD and scenario.
+
+  STRICT SCOPE: output ONLY the failure_mode content for each row. Do NOT output hazardous behavior,
+  harm, risk, mitigation, safety goals, or evidence (those are later phases). NEVER write reviewer,
+  validator, or repair instructions, and never copy any "suggestion" text — produce real technical
+  content. Banned text such as "ensure consistency", "check risk status", "fix decision" must never appear.
 
   TASK: For EACH guideword in "guidewords", produce EXACTLY ONE row describing a concrete,
   plausible FAILURE MODE — a component-level deviation of the named aspect that the guideword
@@ -20,28 +26,48 @@ instructions: |
   A failure mode is what goes wrong at the COMPONENT itself (a wrong/missing/late/unstable
   output, input, internal state, etc.). It is NOT yet the vehicle-level hazard (that is L2).
 
+  COMPONENT LEVEL (required): keep the failure mode at THIS component's level (component_class). For a
+  perception component such as Camera Object Detection, describe the detection output / object list /
+  class / confidence / position / velocity / uncertainty / stale output / observability, e.g. a missed or
+  mislabelled object, a low/over-confident detection, a stale or count-only object list. Do NOT make the
+  detector directly responsible for a braking or steering command — actuation is a downstream effect (L2),
+  not a component-level failure of object detection.
+
   Use each guideword's "meaning" and "ai_examples" to interpret it, and use the
   "class_questions" to focus on risks that matter for this component class. Ground every
   failure mode in the specific scenario and ODD — avoid generic statements.
 
   DISTINCTNESS (critical): each guideword denotes a DIFFERENT kind of deviation, so each
   failure_mode MUST be substantially different from the others — not the same sentence reworded.
-  Reflect the guideword's specific deviation type, for example:
-    - wrong          an incorrect value (wrong class, wrong position, wrong sign)
+  Reflect the guideword's specific deviation type:
+    - no             expected output/input/state is absent
+    - more           quantity, confidence, extent, or rate is too high
+    - less           quantity, confidence, extent, or rate is too low
+    - wrong          class, value, position, sign, or semantics are wrong
     - late           a correct value that arrives after the safety-relevant deadline
     - early          an output/action produced too soon or prematurely
     - intermittent   an output that flickers or alternates between states
-    - frozen         an old value reused as if current (stale)
-    - corrupted      an invalid/damaged value (NaN, Inf, overflow, invalid tensor)
-    - misordered     correct values delivered out of sequence or time-misaligned
-    - inverted       a reversed sign, side, direction, or mapping
-    - uncertain_but_confident  high confidence on an ambiguous or unknown input
+    - frozen         a stale output/state reused as current
+    - corrupted      an invalid/damaged value (NaN, Inf, overflow, malformed, impossible)
+    - inverted       a reversed sign, side, direction, polarity, or mapping
+    - misordered     timestamps, frames, lifecycle, or sequence order wrong
+    - inconsistent   contradiction with another signal, map, sensor, or physical plausibility
+    - overgeneralized  an unusual object/scenario treated as familiar with unjustified confidence
+    - overfitted     fails on a valid but underrepresented ODD/scenario variation
+    - biased         weaker performance for a relevant object/context subgroup
+    - uncertain_but_confident  high confidence despite ambiguity or unknown input
+    - certain_but_unstable  high-confidence output that changes/oscillates over time
+    - resource_limited  compute/memory/timing limitation degrades the output
+    - unmonitored    the failure mode is not detected by any monitor
+    - unsafe_fallback  the degradation/fallback response creates a new hazard
+    - valid_but_unsafe  output passes interface checks but lacks safety-relevant semantics
   NEVER reuse the same deviation across guidewords. BAD (unacceptable): "wrong -> The shuttle
   incorrectly estimates position." and "late -> The shuttle incorrectly estimates position." and
   "corrupted -> The shuttle incorrectly estimates position." — these are identical and wrong.
 
-  Keep each failure_mode to one concise technical sentence (about 12–25 words). Start with a
-  capital letter, end with a period. Do NOT use the ':' character.
+  Keep each failure_mode to ONE concise technical sentence of AT LEAST 8 words (about 12–25 words),
+  component-level, specific to the scenario/ODD. NEVER leave it empty. Start with a capital letter,
+  end with a period. Do NOT use the ':' character.
 
   Echo each row's "row_id" and "guideword" exactly as given in "guidewords" (use the guideword
   "id"). Do not invent new guidewords or skip any.
@@ -60,9 +86,12 @@ constraints: |
   - Produce EXACTLY ONE row per guideword in "guidewords", in the same order.
   - Each row MUST contain: row_id, guideword, failure_mode.
   - "guideword" MUST equal one of the provided guideword "id" values.
-  - failure_mode: one technical sentence, component-level deviation, specific to scenario/ODD.
+  - failure_mode: one technical sentence, component-level deviation, specific to scenario/ODD,
+    AT LEAST 8 words, and NEVER empty.
   - Every failure_mode MUST be substantially different from the others and match its guideword's
     specific deviation type. Do not reword one deviation across multiple guidewords.
+  - Avoid generic phrases such as "incorrect operation", "unsafe behavior", "detection issue",
+    "system failure", "AI error", "hazardous situation".
   - Do NOT describe vehicle-level consequences or harm here (that is L2).
   - NEVER use the ':' character in failure_mode. Ban vague words (failure, issue, error) unless made specific.
 payload_template: |

@@ -9,13 +9,25 @@ instructions: |
   lists evidence types, their purpose, typical test activities, and which evidence type supports which
   measure class.
 
+  STRICT SCOPE: output ONLY evidence and open_assumptions. NEVER write reviewer/validator/repair
+  instructions or copy any suggestion text.
+
   TASK: For EACH row, produce:
-    - evidence: 1–4 concrete evidence items that would substantiate the decision and any proposed
-      measures. Link evidence to measures (e.g. a safety-function monitor → fault injection / runtime
-      verification; a respecification/retraining → dataset audit + scenario validation). For ACCEPT
-      rows, give the evidence that justifies accepting the risk (e.g. scenario validation showing the
-      hazard does not occur in the ODD).
-    - open_assumptions: 0–3 unverified assumptions or required follow-ups (may be empty).
+    - evidence: 1–4 concrete evidence items that VERIFY the proposed measures. Each item MUST
+      reference the specific measure id(s) it verifies, written in parentheses, e.g.
+      "(SF1) Fault injection on the monitor to confirm it flags insufficient cyclist observability and
+      triggers conservative behavior." EVERY measure id present in the row's measures (R1, SF1, P1, ...)
+      MUST be verified by at least one evidence item. Map evidence to measure type (safety-function
+      monitor → fault injection / runtime verification; respecification/retraining → dataset audit +
+      scenario validation; passive/operational → field monitoring / audit). Each item must be testable
+      or reviewable, and MUST NOT merely restate the hazardous_behavior or the safety goal. For ACCEPT
+      rows, give evidence that justifies accepting the risk (e.g. scenario validation showing the hazard
+      does not occur in the ODD).
+      For an ACCEPT row (no measures), evidence must be ACCEPTANCE evidence — what shows the risk is
+      already below target (e.g. scenario-based validation showing the hazard does not occur in this ODD,
+      field-monitoring data) — NOT mitigation evidence, and it must NOT reference measure ids.
+    - open_assumptions: unverified assumptions or required follow-ups. MUST be non-empty when an ACCEPT
+      row is for a dangerous hazard (state the assumptions that justify accepting it); otherwise 0–3 items.
 
   Echo each row's "row_id" exactly. Output ONLY the new fields plus row_id.
 
@@ -36,6 +48,9 @@ constraints: |
     "Dataset audit with a coverage matrix to show occluded-pedestrian cases are represented."
   - open_assumptions items are also plain strings.
   - Evidence should reference an evidence type / test activity from the catalogue and tie to a measure.
+  - Each evidence item MUST reference the measure id(s) it verifies, e.g. "(SF1) ...", and every
+    measure id in the row must be covered by at least one evidence item. Evidence must verify the
+    measure, not restate the hazardous behavior or the safety goal.
   - Do not use the ':' or ';' characters. Ban vague words unless made specific.
 payload_template: |
   {

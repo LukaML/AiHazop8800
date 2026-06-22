@@ -54,6 +54,7 @@ from .validators import (
     validate_l7_payload,
     validate_l8_payload,
     build_validator_report,
+    is_valid_l1_row,
 )
 from .catalogue_loader import load_catalogue
 from .risk_model import compute_risk, FACTORS
@@ -206,7 +207,13 @@ def _gen_l1(state: HazopGraphState) -> List[Dict[str, Any]]:
 
 
 def _gen_l2(state: HazopGraphState) -> List[Dict[str, Any]]:
-    return ai_phase_generate("L2", state.get("rows_l1") or [], notes=state.get("notes", ""))
+    """L2 processes ONLY valid L1 rows. Rows with an empty/short/meta failure_mode are
+    blocked here so no downstream phase (L2-L8) ever runs for them (FIX 1/3)."""
+    prev = state.get("rows_l1") or []
+    valid = [r for r in prev if is_valid_l1_row(r)]
+    if len(valid) != len(prev):
+        logger.warning("L2_INIT: blocking %d invalid L1 row(s) from downstream", len(prev) - len(valid))
+    return ai_phase_generate("L2", valid, notes=state.get("notes", ""))
 
 
 def _risk_inputs() -> Dict[str, str]:

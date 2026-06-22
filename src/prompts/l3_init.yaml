@@ -7,6 +7,9 @@ instructions: |
   You receive AI-HAZOP-8800 L2 rows that were triaged as potentially dangerous. Each row holds the
   failure_mode, hazardous_behavior, potential_harm, and the component/ODD/scenario context.
 
+  STRICT SCOPE: output ONLY the risk factor levels and risk_rationale. NEVER write reviewer/validator/
+  repair instructions or copy any suggestion text; banned text like "ensure consistency" must not appear.
+
   TASK: For EACH row, estimate the initial risk by selecting ONE ORDINAL LEVEL for each of the five
   factors, choosing strictly from the allowed labels in "risk_scales" (do NOT invent labels and do
   NOT output numbers):
@@ -31,8 +34,24 @@ instructions: |
           A collision with a vulnerable road user (cyclist, pedestrian) is serious to fatal.
     - E   Exposure reflects how often the scenario/function occurs per person-year.
   Apply the ODD where it actually belongs. Low speed and geofencing mainly reduce E and S; they do
-  NOT by themselves make PF, PND, or PNM low. Provide a short risk_rationale (one sentence) naming
-  the dominant factors.
+  NOT by themselves make PF, PND, or PNM low.
+
+  Choose factor levels that genuinely reflect THIS hazard — do NOT reuse the same five levels for
+  every row; different failure modes warrant different E/PF/PND/PNM/S. In risk_rationale, justify
+  EACH factor briefly (one short clause for E, for PF, for PND, for PNM, and for S).
+
+  Guideword-specific guidance:
+    - "no", "less", "late", "frozen", "uncertain_but_confident", "valid_but_unsafe" usually have
+      HIGHER PND/PNM when they hide or under-report a vulnerable road user (the failure is silent
+      and hard to mitigate downstream).
+    - "more" / false-positive cases usually have LOWER severity S unless they trigger abrupt braking
+      or an unsafe evasive maneuver.
+    - "inverted", "wrong", "misordered" affecting position/direction often keep S high because the
+      vehicle acts confidently on a wrong value.
+  A high-confidence false negative, a skipped detection (e.g. due to GPU load), a stale position, or a
+  count-only valid-but-unsafe output that HIDES a vulnerable road user is normally ABOVE the MEM target,
+  not acceptable by default: use medium-to-high PND and PNM (no monitor exists yet at L3) with serious or
+  fatal S. Do NOT make such a hazard come out ACCEPTABLE without a strong, explicit rationale.
 
   ANCHOR (illustrative, do not copy blindly) — a campus shuttle that misses a cyclist behind a parked
   van, with no independent monitor, is roughly E medium, PF high, PND high, PNM high, S serious, which

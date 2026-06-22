@@ -11,6 +11,13 @@ instructions: |
   not HOW (the "how" is L6 measures). Phrase each goal as a single clause, e.g.
   "Ensure a cyclist behind an occlusion is never treated as absent when observability is insufficient."
 
+  Each goal MUST be tied to THIS row's hazard and be specific. REJECT generic goals such as
+  "improve detection", "improve accuracy", "ensure safety", "improve performance", or "enhance
+  robustness" — name the specific hazardous behavior the goal prevents or controls.
+
+  STRICT SCOPE: output ONLY the safety goals. Do NOT output measures, evidence, or risk, and NEVER
+  write reviewer/validator/repair instructions or copy any suggestion text.
+
   Keep goals consistent with the safety_decision (IMPROVE → goals about detection/behavior quality;
   RESTRICT → goals about bounding exposure/severity; INVESTIGATE → goals about establishing evidence).
 

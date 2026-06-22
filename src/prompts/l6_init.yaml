@@ -24,8 +24,20 @@ instructions: |
   safety_function; an "improve the AI" goal usually needs a respecification; an exposure/severity goal
   usually needs a passive_operational_measure).
 
-  Example safety_functions item -> "[SG1] The system shall output UNKNOWN when cyclist observability is
-  insufficient instead of reporting clear."
+  STABLE IDS (required): give every measure a stable id and place it right after the goal tag, in
+  parentheses. Respecifications are (R1), (R2), ...; safety_functions are (SF1), (SF2), ...;
+  passive_operational_measures are (P1), (P2), ... — number each class from 1 within the row. So a
+  measure string looks like "[SG1] (SF1) The system shall ...". Evidence (L8) will reference these ids.
+
+  COMPONENT LEVEL (required): measures MUST match the component's level (component_class). For a
+  perception component such as Camera Object Detection, prefer detection-output measures — dataset
+  coverage of occluded vulnerable road users, recall targets, confidence calibration, uncertainty /
+  UNKNOWN output instead of false absence, stale-output / OOD / absence-of-evidence monitors, and a
+  downstream interface contract to the planner. Do NOT write planner-level requirements (path/behavior
+  planning) unless the component_class is a Planning component.
+
+  Example safety_functions item -> "[SG1] (SF1) The system shall output UNKNOWN when cyclist
+  observability is insufficient instead of reporting the path as clear."
 
   Echo each row's "row_id" exactly. Output ONLY the new fields plus row_id.
 
@@ -43,7 +55,9 @@ constraints: |
   - Output JSON ONLY: a top-level JSON ARRAY of objects, one per input row, SAME order and length.
   - Each of the three fields is an array of requirement-style strings (a class may be empty).
   - EVERY safety goal (SG1..SGn, by ai_safety_goals order) MUST be covered by at least one measure, and
-    each measure string MUST begin with its goal tag "[SGk] ".
+    each measure string MUST begin with its goal tag "[SGk] " followed by its id "(R1)"/"(SF1)"/"(P1)".
+  - Measures MUST be appropriate to the component_class (detection-output level for perception
+    components; never planner-level unless the component is a Planning component).
   - Write measures as one-sentence "shall" requirements. Do not use the ':' or ';' characters.
 payload_template: |
   {

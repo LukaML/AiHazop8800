@@ -85,15 +85,13 @@ const ResultsTable = {
     },
 
     measuresCell(final) {
-        const groups = Fields.measureGroups(final);
-        if (!groups.some(g => g.items.length)) {
+        const groups = Fields.measureGroups(final).filter(g => g.items.length);
+        if (!groups.length) {
             return `<td class="px-3 py-2.5 text-slate-300 align-top">—</td>`;
         }
         const inner = groups.map(g => {
             const head = `<div class="font-semibold text-slate-600">${this.escapeHtml(g.goal)}</div>`;
-            const body = g.items.length
-                ? g.items.map(it => `<div class="pl-2 py-0.5"><span class="font-semibold text-slate-500 mr-1">${this.escapeHtml(it.label)}</span>${this.escapeHtml(it.text)}</div>`).join('')
-                : `<div class="pl-2 py-0.5 text-amber-600 text-xs">no measure for this goal</div>`;
+            const body = g.items.map(it => `<div class="pl-2 py-0.5"><span class="font-semibold text-slate-500 mr-1">${this.escapeHtml(it.label)}</span>${this.escapeHtml(it.text)}</div>`).join('');
             return `<div class="py-1 border-t border-slate-200 first:border-t-0">${head}${body}</div>`;
         }).join('');
         return `<td class="px-3 py-2 align-top min-w-[220px] max-w-[340px] whitespace-normal break-words">${inner}</td>`;

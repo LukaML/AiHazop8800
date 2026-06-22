@@ -160,15 +160,24 @@ const Fields = {
         const ng = Math.max(goals.length, 1);
         const groups = [];
         for (let k = 1; k <= ng; k++) groups.push({ goal: 'SG' + k, goalText: goals[k - 1] || '', items: [] });
+        const ID_RE = /^\((SF|R|P)\s*\d+\)\s*/i;
         const addClass = (arr, cls) => {
             const counter = {};
             (Array.isArray(arr) ? arr : []).forEach(x => {
-                const { goal, text } = this.parseGoalTag(x);
-                if (!text) return;
+                let { goal, text } = this.parseGoalTag(x);
                 const g = Math.min(Math.max(goal, 1), ng);
-                counter[g] = counter[g] || {};
-                counter[g][cls] = (counter[g][cls] || 0) + 1;
-                groups[g - 1].items.push({ label: `${cls}${g}.${counter[g][cls]}`, text });
+                let label;
+                const m = text.match(ID_RE);
+                if (m) {
+                    label = m[0].replace(/[()\s]/g, '').toUpperCase();   // explicit id e.g. SF1
+                    text = text.slice(m[0].length).trim();
+                } else {
+                    counter[g] = counter[g] || {};
+                    counter[g][cls] = (counter[g][cls] || 0) + 1;
+                    label = `${cls}${g}.${counter[g][cls]}`;             // derived fallback
+                }
+                if (!text) return;
+                groups[g - 1].items.push({ label, text });
             });
         };
         addClass(final.respecifications, 'R');

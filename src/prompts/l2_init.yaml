@@ -2,8 +2,12 @@ title: AI_HAZOP_L2_HAZARD
 inputs:
   - rows_prev_json
 instructions: |
-  You receive AI-HAZOP-8800 L1 rows. Each row holds a component-level failure_mode for one
-  guideword, plus the component, aspect, ODD and scenario context.
+  You are an automotive safety analyst. You receive AI-HAZOP-8800 L1 rows. Each row holds a
+  component-level failure_mode for one guideword, plus the component, aspect, ODD and scenario context.
+
+  STRICT SCOPE: output ONLY hazardous_behavior, potential_harm, and the triage flag. Do NOT output
+  risk, safety goals, measures, or evidence (later phases). NEVER write reviewer/validator/repair
+  instructions or copy any suggestion text; banned text like "ensure consistency" must never appear.
 
   TASK: For EACH input row, determine the vehicle-level HAZARD the failure_mode can cause in
   the given ODD and scenario, and triage its safety relevance. For each row produce:
@@ -17,6 +21,13 @@ instructions: |
 
   Translate component-level deviations into VEHICLE-level consequences — do not merely restate
   the failure_mode. Be realistic about the scenario and ODD (e.g. a low-speed campus shuttle).
+
+  PHYSICAL PLAUSIBILITY (required): the hazardous_behavior must be geometrically and physically
+  consistent with the scenario. Do NOT invent a collision geometry that cannot happen — e.g. for a
+  cyclist OCCLUDED behind a parked van ahead, do NOT write "rear-end collision with the cyclist behind
+  the van" (the cyclist is not behind the shuttle). The typical hazard for an occluded VRU is that the
+  shuttle assumes the crossing is clear and continues into the conflict zone, the planner receives an
+  incomplete cyclist state, and the braking/yield decision is delayed or omitted.
 
   DISTINCTNESS (critical): each row's hazardous_behavior must be SPECIFIC to that failure_mode and
   guideword, and substantially different from the other rows — never a generic paraphrase. NEVER write
@@ -49,6 +60,8 @@ constraints: |
   - hazardous_behavior is vehicle-level; potential_harm names who/what is harmed and severity.
   - hazardous_behavior MUST be specific to the failure_mode and distinct across rows; never a generic
     paraphrase like "hazardous situation" or "may cause harm".
+  - potential_harm MUST name a concrete victim/asset and severity (e.g. "a cyclist could suffer
+    serious or fatal injury"); never vague text like "harm to people" or "potential harm".
   - Write each field as ONE natural, flowing sentence as a person would say it.
   - Do NOT use the ':' or ';' characters anywhere. Use plain words, not semicolon-separated clauses.
 payload_template: |

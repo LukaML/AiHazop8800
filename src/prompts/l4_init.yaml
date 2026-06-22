@@ -17,9 +17,14 @@ instructions: |
                    exposure or severity (ODD restriction, speed limit, geofence).
     - INVESTIGATE  risk is above target but insufficiently understood; evidence must be gathered first.
 
-  Be consistent with risk_status: if risk_status is ACCEPTABLE, prefer ACCEPT (unless the harm is so
-  severe that investigation is warranted). If it is ABOVE the target, choose IMPROVE, RESTRICT, or
-  INVESTIGATE based on which lever most plausibly closes the gap. Give a one-sentence acceptance_rationale.
+  CONSISTENCY (hard rule): the safety_decision MUST match risk_status.
+    - risk_status ACCEPTABLE  -> safety_decision MUST be ACCEPT.
+    - risk_status ABOVE MEM TARGET -> safety_decision MUST be IMPROVE, RESTRICT, or INVESTIGATE (never ACCEPT).
+  Give a one-sentence acceptance_rationale.
+
+  STRICT SCOPE: output ONLY safety_decision and acceptance_rationale. NEVER write reviewer/validator/
+  repair instructions or copy any suggestion text; banned text like "ensure consistency between
+  risk_status and safety_decision" must never appear in any field.
 
   Echo each row's "row_id" exactly. Output ONLY the new fields plus row_id.
 
