@@ -404,7 +404,11 @@ def _make_init_node(spec: Dict[str, Any]) -> Callable:
 
     def init_node(state: HazopGraphState) -> Dict[str, Any]:
         logger.info("=== %s_INIT ===", spec["name"])
-        rows = spec["generate"](state) or []
+        try:
+            rows = spec["generate"](state) or []
+        except Exception as exc:  # an unparsable LLM reply must not kill the whole run
+            logger.error("%s_INIT generation failed (%s); producing no rows for this phase", spec["name"], exc)
+            rows = []
         rows = _ensure_rows_list(rows)
         return {k["rows"]: rows, k["repair"]: 0}
 
@@ -451,20 +455,27 @@ def _make_regen_node(spec: Dict[str, Any]) -> Callable:
 
         target_sfx = _suffixes(target_ids)
         subset = _pick_rows_by_suffix(rows, target_sfx)
+        sug = sug[:400]  # never feed a giant blob the model may echo into a field
         hints = [{"row_id": r.get("row_id"), "fields": spec["patch_fields"], "suggestion": sug} for r in subset]
 
-        patched = ai_patch(spec["name"], subset, hints, notes=state.get("notes", "")) or []
-        patched = _ensure_rows_list(patched)
+        try:
+            patched = _ensure_rows_list(ai_patch(spec["name"], subset, hints, notes=state.get("notes", "")) or [])
+        except Exception as exc:  # bad LLM repair reply: keep existing rows, do not crash
+            logger.warning("%s_REGEN: patch failed (%s); keeping existing rows", spec["name"], exc)
+            patched = []
         merged = _merge_subset_by_suffix(rows, patched) if patched else rows
 
         # Fallback: if the targeted patch changed nothing, regenerate the whole
         # phase and splice in the targeted rows.
         if (not patched) or _rows_equal_by_suffix(rows, merged):
             logger.info("%s_REGEN: patch no-op, falling back to full regenerate", spec["name"])
-            fresh = _ensure_rows_list(spec["generate"](state) or [])
-            fresh_subset = _pick_rows_by_suffix(fresh, target_sfx)
-            if fresh_subset:
-                merged = _merge_subset_by_suffix(rows, fresh_subset)
+            try:
+                fresh = _ensure_rows_list(spec["generate"](state) or [])
+                fresh_subset = _pick_rows_by_suffix(fresh, target_sfx)
+                if fresh_subset:
+                    merged = _merge_subset_by_suffix(rows, fresh_subset)
+            except Exception as exc:
+                logger.warning("%s_REGEN: fallback regenerate failed (%s); keeping existing rows", spec["name"], exc)
 
         return {k["rows"]: merged, k["repair"]: rnd + 1}
 
@@ -513,7 +524,11 @@ def holistic_review_node(state: HazopGraphState) -> Dict[str, Any]:
     rnd = state.get("holistic_round", 0)
     view = _holistic_view(state)
     logger.info("=== HOL_REVIEW (round %d): %d rows ===", rnd, len(view))
-    decision = ai_holistic_review(view, [], notes=state.get("notes", "")) or {}
+    try:
+        decision = ai_holistic_review(view, [], notes=state.get("notes", "")) or {}
+    except Exception as exc:  # holistic review is optional polish: never fail the run on it
+        logger.warning("HOL_REVIEW failed (%s); accepting the worksheet as-is", exc)
+        decision = {"decision": "OK"}
     ok = (decision.get("decision") or "").upper() == "OK"
     return {
         "holistic_ok": ok,
@@ -545,30 +560,39 @@ def patch_and_cascade(
         return {}
 
     idx = next(i for i, s in enumerate(PHASE_SPECS) if s["name"] == scope)
-    sug = (suggestion or "").strip()
+    sug = (suggestion or "").strip()[:400]  # cap: never feed a giant blob the model may echo
 
     s = dict(state)  # working copy threaded through downstream regeneration
     updates: Dict[str, Any] = {}
 
-    # 1) Patch the targeted rows at the scope phase.
+    # 1) Patch the targeted rows at the scope phase (a bad LLM reply must not crash).
     k = _keys(scope)
     rows = [_row_to_dict(r) for r in (s.get(k["rows"]) or [])]
     subset = _pick_rows_by_suffix(rows, target_sfx) if target_sfx else []
     if subset and sug:
         hints = [{"row_id": r.get("row_id"), "fields": spec["patch_fields"], "suggestion": sug} for r in subset]
-        patched = _ensure_rows_list(ai_patch(scope, subset, hints, notes=notes) or [])
-        merged = _merge_subset_by_suffix(rows, patched) if patched else rows
-        if spec["pre_validate"]:
-            merged = spec["pre_validate"](merged)
-        s[k["rows"]] = merged
-        updates[k["rows"]] = merged
+        try:
+            patched = _ensure_rows_list(ai_patch(scope, subset, hints, notes=notes) or [])
+        except Exception as exc:
+            logger.warning("patch_and_cascade: %s patch failed (%s); keeping existing rows", scope, exc)
+            patched = []
+        if patched:
+            merged = _merge_subset_by_suffix(rows, patched)
+            if spec["pre_validate"]:
+                merged = spec["pre_validate"](merged)
+            s[k["rows"]] = merged
+            updates[k["rows"]] = merged
 
     # 2) Invalidate and regenerate every downstream phase.
     for ds in PHASE_SPECS[idx + 1:]:
         dk = _keys(ds["name"])
-        fresh = _ensure_rows_list(ds["generate"](s) or [])
-        if ds["pre_validate"]:
-            fresh = ds["pre_validate"](fresh)
+        try:
+            fresh = _ensure_rows_list(ds["generate"](s) or [])
+            if ds["pre_validate"]:
+                fresh = ds["pre_validate"](fresh)
+        except Exception as exc:
+            logger.warning("patch_and_cascade: regenerating %s failed (%s); keeping existing rows", ds["name"], exc)
+            fresh = _ensure_rows_list(s.get(dk["rows"]) or [])
         s[dk["rows"]] = fresh
         updates[dk["rows"]] = fresh
 
