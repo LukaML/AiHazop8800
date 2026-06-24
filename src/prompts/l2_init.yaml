@@ -18,6 +18,12 @@ instructions: |
       clauses with punctuation — write it the way a person would say it.
     - potentially_dangerous: true if this row is safety-relevant and must continue through risk
       analysis, and false if it cannot plausibly contribute to vehicle-level harm in this ODD or scenario.
+      TRIAGE RULE (hard): if the hazardous_behavior or potential_harm mentions a vulnerable road user
+      (pedestrian, cyclist, bicyclist, motorcyclist, child, person, wheelchair, scooter) OR a contact/
+      injury outcome (collision, struck, hit, run over, impact, crash, injury, serious injury, fatal,
+      death), it MUST be potentially_dangerous=true. Such a row is safety-relevant and must continue to
+      L3 Initial Risk and L4 Acceptance — it must never stop after L2. Only mark false when the row truly
+      cannot contribute to vehicle-level harm and names no road user or injury.
 
   Translate component-level deviations into VEHICLE-level consequences — do not merely restate
   the failure_mode. Be realistic about the scenario and ODD (e.g. a low-speed campus shuttle).
@@ -32,6 +38,9 @@ instructions: |
   DISTINCTNESS (critical): each row's hazardous_behavior must be SPECIFIC to that failure_mode and
   guideword, and substantially different from the other rows — never a generic paraphrase. NEVER write
   vague text like "may cause a hazardous situation" or "could be dangerous".
+  AVOID these empty fillers: "potentially leading to a collision", "unsafe behavior happens", "an unsafe
+  situation occurs", "may result in an accident", "could lead to harm", "a hazardous event may occur".
+  Instead state the concrete maneuver/geometry (who, where, what the vehicle does).
   BAD (unacceptable): wrong -> "may cause hazardous situation"; late -> "may cause hazardous situation";
   corrupted -> "may cause hazardous situation".
   GOOD (specific, tied to the deviation):

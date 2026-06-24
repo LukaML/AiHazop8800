@@ -16,7 +16,8 @@ import logging
 from copy import deepcopy
 
 from src.row_utils import _suffix, _scrub_meta
-from src.risk_model import compute_risk, FACTORS
+from src.risk_model import compute_risk, FACTORS, acceptance_criterion_text
+from src.validators import is_exportable_row
 
 from ..models import RowData, Rating, AnalysisStatus
 
@@ -129,6 +130,7 @@ class RowState:
     rating: Rating = Rating.UNRATED
     edited_flag: bool = False
     regenerated_flag: bool = False
+    complete: bool = True
 
     @property
     def dangerous_final(self) -> bool:
@@ -144,6 +146,7 @@ class RowState:
             original=self.original,
             final=self.final,
             dangerous_final=self.dangerous_final,
+            complete=self.complete,
             rating=self.rating,
             edited_flag=self.edited_flag,
             regenerated_flag=self.regenerated_flag,
@@ -183,6 +186,14 @@ class AnalysisRun:
 
 def _canonical_id(component_index: int, row_id: str) -> str:
     return f"c{component_index}__{row_id}"
+
+
+def _apply_derived(final: Dict[str, Any], display_id: str) -> None:
+    """Stamp paper display-only fields (Hazard ID, Acceptance criterion) onto a row's map."""
+    final["hazard_id"] = display_id
+    final["acceptance_criterion"] = (
+        acceptance_criterion_text() if bool(final.get("potentially_dangerous")) else ""
+    )
 
 
 class StateManager:
@@ -232,14 +243,19 @@ class StateManager:
                 # Display id: leading number = component (1-based), trailing = row in it.
                 # Component 1 -> L1-1..L1-n, component 2 -> L2-1..L2-n, etc.
                 display_id = f"L{ci + 1}-{ordinal}"
+                original = deepcopy(merged)
+                final = deepcopy(merged)
+                _apply_derived(original, display_id)
+                _apply_derived(final, display_id)
                 run.rows[cid] = RowState(
                     row_id=cid,
                     display_id=display_id,
                     component_index=ci,
                     component=str(merged.get("component", "")),
                     guideword=str(merged.get("guideword", "")),
-                    original=deepcopy(merged),
-                    final=deepcopy(merged),
+                    original=original,
+                    final=final,
+                    complete=is_exportable_row(final),
                 )
         logger.info("Initialized %d rows for run %s", len(run.rows), run_id)
 
@@ -290,6 +306,8 @@ class StateManager:
         if changed:
             self._recompute_risk(run, ci, sfx, touched_phases)
             row.final = _rebuild_final(run.states[ci], sfx)
+            _apply_derived(row.final, row.display_id)
+            row.complete = is_exportable_row(row.final)
             row.edited_flag = True
             logger.info("Row %s edited in run %s", row_id, run_id)
         return row
@@ -331,6 +349,8 @@ class StateManager:
             if not row:
                 continue
             row.final = _rebuild_final(run.states[row.component_index], _suffix(rid))
+            _apply_derived(row.final, row.display_id)
+            row.complete = is_exportable_row(row.final)
             row.regenerated_flag = True
             updated.append(row)
         return updated

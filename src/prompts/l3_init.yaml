@@ -36,9 +36,15 @@ instructions: |
   Apply the ODD where it actually belongs. Low speed and geofencing mainly reduce E and S; they do
   NOT by themselves make PF, PND, or PNM low.
 
-  Choose factor levels that genuinely reflect THIS hazard — do NOT reuse the same five levels for
-  every row; different failure modes warrant different E/PF/PND/PNM/S. In risk_rationale, justify
-  EACH factor briefly (one short clause for E, for PF, for PND, for PNM, and for S).
+  DIVERSITY (hard rule): choose factor levels that genuinely reflect THIS hazard — do NOT reuse the same
+  five levels for every row. Within one component/aspect/scenario, the rows MUST NOT all share an
+  identical E/PF/PND/PNM/S tuple; different failure modes (a missed VRU vs. a false positive vs. a stale
+  output) warrant clearly different factors. In risk_rationale, justify EACH factor briefly (one short
+  clause for E, for PF, for PND, for PNM, and for S).
+
+  VRU SEVERITY (hard rule): if the hazardous_behavior or potential_harm describes the vehicle striking,
+  colliding with, or running over a vulnerable road user (pedestrian, cyclist, child, …), severity S MUST
+  be at least "serious" (serious or fatal). A pedestrian/cyclist impact is never "moderate" or lower.
 
   Guideword-specific guidance:
     - "no", "less", "late", "frozen", "uncertain_but_confident", "valid_but_unsafe" usually have
@@ -53,9 +59,10 @@ instructions: |
   not acceptable by default: use medium-to-high PND and PNM (no monitor exists yet at L3) with serious or
   fatal S. Do NOT make such a hazard come out ACCEPTABLE without a strong, explicit rationale.
 
-  ANCHOR (illustrative, do not copy blindly) — a campus shuttle that misses a cyclist behind a parked
-  van, with no independent monitor, is roughly E medium, PF high, PND high, PNM high, S serious, which
-  yields a risk ABOVE the MEM target. Aim for a realistic spread across rows, not all-low or all-high.
+  CALIBRATION REFERENCE (reason from it, do NOT copy a fixed tuple): a silent failure that hides a
+  vulnerable road user with no independent monitor lands clearly ABOVE the MEM target; a benign false
+  positive with a conservative baseline lands much lower. Spread the factors across rows accordingly —
+  reason each factor from THIS row's deviation, ODD, and scenario rather than repeating one preset.
 
   Do NOT compute the numeric risk value — the system computes R = E·PF·PND·PNM·S from your chosen
   levels and compares it to the MEM target ("mem_target").
@@ -80,7 +87,10 @@ constraints: |
   - Each object MUST contain: row_id, E, PF, PND, PNM, S, risk_rationale.
   - E/PF/PND/PNM/S MUST each be one of the allowed ordinal labels from "risk_scales" for that factor.
   - Do NOT output numeric factor values and do NOT compute the risk product yourself.
-  - risk_rationale is one sentence. Do not use the ':' character.
+  - risk_rationale must justify all five factors (a short clause each for E, PF, PND, PNM, S).
+  - Within one component/aspect/scenario, rows must NOT all share an identical E/PF/PND/PNM/S tuple.
+  - If the harm is contact with a vulnerable road user, S must be serious or fatal.
+  - Do not use the ':' character.
 payload_template: |
   {
     "rows_l2": {{rows_prev_json}},

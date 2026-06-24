@@ -1,0 +1,85 @@
+# Component-level scoping rules for L1 failure modes (AI-HAZOP-8800 PART 3).
+#
+# A failure mode must be stated at the level of the analysed component, not at
+# the level of a downstream consumer. A perception component (e.g. a camera
+# object detector) fails by producing a wrong *perception output* (missed/false/
+# mislocated detection) — NOT by "braking late" or "steering wrong"; those are
+# failures of the control component that *reacts to* the perception output.
+#
+# Rules are keyed by class *family* (the part before the first "-" in a taxonomy
+# class id, e.g. "Camera-ObjectDetection" -> "Camera"). Each family lists:
+#   forbidden_terms : terms that, if present in a failure_mode, indicate the
+#                     statement drifted to a downstream component (reject).
+#   required_any    : at least one of these output concepts must appear, so the
+#                     failure mode is anchored to this component's own output.
+#   level           : human-readable family label (for messages/prompts).
+
+families:
+  Camera:
+    level: perception
+    # Downstream control/planning ACTION terms only. NOTE: use planning-specific phrases
+    # ("route planning"/"reroute"), never the bare noun "route", which innocuously describes the
+    # road the camera observes (e.g. "lighting conditions on the route").
+    forbidden_terms: [braking, brake, brakes, steering, steer, throttle, accelerate,
+      acceleration, decelerate, deceleration, trajectory, path planning, route planning,
+      reroute, re-route, waypoint, control command, actuation, actuator, maneuver, manoeuvre, swerve,
+      stop the vehicle, vehicle stops, vehicle does not stop, motion plan, planner]
+    required_any: [detect, detection, detects, detected, classif, recogni, identif,
+      bounding box, segmentation, perceiv, perception, object, pedestrian, cyclist,
+      vehicle in frame, false negative, false positive, missed, mislocat, position
+      estimate, image, pixel, frame, occlusion, track]
+
+  Lidar:
+    level: perception
+    forbidden_terms: [braking, brake, steering, steer, throttle, accelerate,
+      decelerate, trajectory, path planning, route planning, reroute, control command,
+      actuation, maneuver, swerve, motion plan, planner]
+    required_any: [detect, detection, point cloud, range, distance, reflect, object,
+      false negative, false positive, missed, mislocat, position, obstacle]
+
+  Radar:
+    level: perception
+    forbidden_terms: [braking, brake, steering, steer, throttle, accelerate,
+      decelerate, trajectory, path planning, route planning, reroute, control command,
+      actuation, maneuver, swerve, motion plan, planner]
+    required_any: [detect, detection, range, velocity, doppler, distance, object,
+      false negative, false positive, missed, mislocat, obstacle, track]
+
+  Ultrasonic:
+    level: perception
+    forbidden_terms: [braking, brake, steering, steer, throttle, accelerate,
+      decelerate, trajectory, path planning, route planning, reroute, control command,
+      actuation, maneuver, swerve, motion plan, planner]
+    required_any: [detect, detection, range, distance, proximity, object, obstacle,
+      false negative, false positive, missed]
+
+  SensorFusion:
+    level: fusion
+    forbidden_terms: [braking, brake, steering, steer, throttle, accelerate,
+      decelerate, control command, actuation, maneuver, swerve, motion plan]
+    required_any: [fuse, fusion, fused, associat, merge, combined, track, object,
+      detection, false negative, false positive, missed, mislocat, conflict,
+      inconsistent, position, estimate]
+
+  Localization:
+    level: localization
+    forbidden_terms: [braking, brake, steering, steer, throttle, accelerate,
+      decelerate, control command, actuation, maneuver, swerve, detect pedestrian,
+      detect cyclist, object detection]
+    required_any: [pose, position, localiz, ego, map, heading, orientation, drift,
+      offset, coordinate, estimate, gnss, gps, odometry]
+
+  Planning:
+    level: planning
+    forbidden_terms: [brake actuation, brake pressure, steering torque, throttle
+      signal, wheel, pixel, point cloud, bounding box, image frame]
+    required_any: [plan, trajectory, path, route, maneuver, manoeuvre, behavior,
+      behaviour, waypoint, decision, gap, yield, merge, lane, speed profile]
+
+  Control:
+    level: control
+    forbidden_terms: [object detection, bounding box, point cloud, pixel, image
+      frame, false negative, false positive, missed detection, segmentation,
+      route planning, behavior plan]
+    required_any: [brake, braking, steer, steering, throttle, accelerat, decelerat,
+      torque, actuat, command, control, longitudinal, lateral, setpoint, track the]

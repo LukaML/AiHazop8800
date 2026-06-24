@@ -5,23 +5,28 @@
 const Fields = {
     SAFETY_DECISIONS: ['ACCEPT', 'IMPROVE', 'RESTRICT', 'INVESTIGATE'],
 
-    // Results-table columns (in order). Flags: code, list, measures, risk.
+    // Results-table columns — AI-HAZOP-8800 paper §12 order. Flags: code, list, measures, risk.
     columns: [
+        { key: 'hazard_id', label: 'Hazard ID' },
         { key: 'component', label: 'Component' },
+        { key: 'component_class', label: 'Class' },
         { key: 'aspect', label: 'Aspect' },
-        { key: 'guideword', label: 'Guideword', code: true },
-        { key: 'failure_mode', label: 'Failure Mode' },
-        { key: 'hazardous_behavior', label: 'Hazardous Behavior' },
-        { key: 'potential_harm', label: 'Potential Harm' },
-        { key: 'initial_risk', label: 'Initial Risk', risk: true },
+        { key: 'odd', label: 'ODD' },
+        { key: 'scenario', label: 'Scenario' },
+        { key: 'guideword', label: 'Guideword/Question', code: true },
+        { key: 'failure_mode', label: 'Failure mode' },
+        { key: 'hazardous_behavior', label: 'Hazardous behavior' },
+        { key: 'potential_harm', label: 'Potential harm' },
+        { key: 'initial_risk', label: 'Initial risk', risk: true },
         { key: 'risk_status', label: 'Risk Status' },
-        { key: 'safety_decision', label: 'Safety Decision' },
-        { key: 'ai_safety_goals', label: 'AI Safety Goals', list: true },
+        { key: 'acceptance_criterion', label: 'Acceptance criterion' },
+        { key: 'safety_decision', label: 'Safety decision' },
+        { key: 'ai_safety_goals', label: 'AI Safety Goal', list: true },
         { key: 'measures', label: 'Measures', measures: true },
-        { key: 'residual_risk', label: 'Residual Risk', risk: true },
+        { key: 'residual_risk', label: 'Residual risk', risk: true },
         { key: 'residual_status', label: 'Residual Status' },
         { key: 'evidence', label: 'Evidence', list: true },
-        { key: 'open_assumptions', label: 'Open Assumptions', list: true },
+        { key: 'open_assumptions', label: 'Open assumptions', list: true },
     ],
 
     // Editable fields, grouped by phase. `repr` = the field whose presence in a

@@ -55,6 +55,7 @@ from .validators import (
     validate_l8_payload,
     build_validator_report,
     is_valid_l1_row,
+    is_safety_relevant,
 )
 from .catalogue_loader import load_catalogue
 from .risk_model import compute_risk, FACTORS
@@ -192,6 +193,22 @@ def _attach_residual_risk(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+def _stamp_triage(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """L2 pre-validate hook: deterministically correct the safety-relevance triage.
+
+    The LLM sometimes clears a genuinely dangerous row (e.g. a cyclist collision) by setting
+    potentially_dangerous=false, which would END it after L2 (architecture §6). We force the flag
+    to True for any row that ``is_safety_relevant`` (VRU / collision / injury wording), so the
+    existing L2→L3 gate routes it onward. This is a guarantee independent of the LLM."""
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        r = dict(r)
+        if not _truthy(r.get("potentially_dangerous")) and is_safety_relevant(r):
+            r["potentially_dangerous"] = True
+        out.append(r)
+    return out
+
+
 # ============================================================================
 #                          PHASE GENERATORS
 # ============================================================================
@@ -210,9 +227,13 @@ def _gen_l2(state: HazopGraphState) -> List[Dict[str, Any]]:
     """L2 processes ONLY valid L1 rows. Rows with an empty/short/meta failure_mode are
     blocked here so no downstream phase (L2-L8) ever runs for them (FIX 1/3)."""
     prev = state.get("rows_l1") or []
-    valid = [r for r in prev if is_valid_l1_row(r)]
-    if len(valid) != len(prev):
-        logger.warning("L2_INIT: blocking %d invalid L1 row(s) from downstream", len(prev) - len(valid))
+    valid = []
+    for r in prev:
+        if is_valid_l1_row(r):
+            valid.append(r)
+        else:
+            logger.warning("L2_INIT: blocking L1 row %s from downstream (failure_mode empty/meta/too short): %r",
+                           _row_get_field(r, "row_id"), str(_row_get_field(r, "failure_mode") or "")[:80])
     return ai_phase_generate("L2", valid, notes=state.get("notes", ""))
 
 
@@ -230,8 +251,10 @@ def _risk_inputs() -> Dict[str, str]:
 def _gen_l3(state: HazopGraphState) -> List[Dict[str, Any]]:
     """L3 processes ONLY the dangerous subset of L2 rows (conditional early-exit)."""
     prev = state.get("rows_l2") or []
-    dangerous = [r for r in prev if _truthy(_row_get_field(r, "potentially_dangerous"))]
-    logger.info("L3_INIT: %d/%d rows are potentially_dangerous", len(dangerous), len(prev))
+    # Safety-relevance gate (architecture §6). is_safety_relevant honours the L2 triage flag and
+    # also catches VRU/collision rows the LLM wrongly cleared, so they still reach L3/L4.
+    dangerous = [r for r in prev if is_safety_relevant(r)]
+    logger.info("L3_INIT: %d/%d rows are safety-relevant", len(dangerous), len(prev))
     if not dangerous:
         return []
     rows = ai_phase_generate("L3", dangerous, extra_inputs=_risk_inputs(), notes=state.get("notes", ""))
@@ -327,7 +350,7 @@ PHASE_SPECS: List[Dict[str, Any]] = [
         "name": "L2",
         "generate": _gen_l2,
         "validate": lambda state, rows: validate_l2_payload(rows),
-        "pre_validate": None,
+        "pre_validate": _stamp_triage,
         "patch_fields": ["hazardous_behavior", "potential_harm", "potentially_dangerous"],
         "review_hint": "Re-generate ONLY targeted L2 hazard rows using the reviewer suggestion.",
     },

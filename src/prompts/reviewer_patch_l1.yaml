@@ -17,6 +17,12 @@ instructions: |
   - CRITICAL: the "suggestion" field is USER GUIDANCE about what to improve.
     DO NOT copy the suggestion text into failure_mode. INTERPRET it and write NEW technical content.
   - failure_mode is a component-level deviation (one technical sentence), NOT a vehicle-level consequence.
+  - COMPONENT LEVEL (hard rule): keep the failure mode at the row's own component_class level. For a
+    perception/fusion/localization component, NEVER use downstream control/planning terms (braking,
+    steering, throttle, accelerate/decelerate, trajectory, path/route, waypoint, control command,
+    actuation, maneuver, swerve, "vehicle stops/does not stop in time"); describe a wrong OUTPUT of this
+    component instead (e.g. a missed/false/mislocated detection, wrong class/confidence/position). For a
+    control component the opposite holds (describe the wrong/late command, not detection/pixel terms).
   - If a hint is vague, infer a plausible concrete failure mode consistent with the guideword and component.
 
   STRICT OUTPUT: a top-level JSON ARRAY of row OBJECTS (same count as input). No outer wrapper, no prose.

@@ -8,11 +8,18 @@ instructions: |
   proposed measures (respecifications, safety_functions, passive_operational_measures).
 
   TASK: For EACH row, estimate the RESIDUAL risk assuming the proposed measures are implemented. Select
-  ONE ORDINAL LEVEL for each factor, strictly from "risk_scales", reflecting each measure's expected
-  effect (e.g. a respecification that improves recall lowers PF; a safety function that detects the
-  failure lowers PND; conservative-behavior safety functions lower PNM; an ODD restriction lowers E or S).
-  A residual level must be the same as or LOWER (less risky) than the corresponding initial level — never
-  higher. Provide a one-sentence residual_rationale linking measures to the reduced factors.
+  ONE ORDINAL LEVEL for each factor, strictly from "risk_scales".
+
+  MEASURE-LINKED REDUCTION (hard rule): a factor may improve over its initial level ONLY if a measure of
+  the MATCHING class is actually present in this row, and you must name that measure in residual_rationale:
+    - PF  improves only if a respecification (R) addresses the failure cause (better data/model/calibration).
+    - PND improves only if a safety function (SF) detects the failure (monitor, consistency/OOD check).
+    - PNM improves only if a safety function (SF) mitigates after the failure (fallback, safe-stop, envelope).
+    - E   improves only if a passive/operational measure (P) restricts exposure (ODD, geofence, hours).
+    - S   improves only if a measure physically reduces severity (speed cap, separation, external protection).
+  Do NOT apply a uniform across-the-board reduction. Leave a factor UNCHANGED when no matching measure
+  addresses it. A residual level must be the same as or LOWER (less risky) than the initial level — never
+  higher. residual_rationale must state which specific measure justifies each reduced factor.
 
   Do NOT compute the numeric residual — the system computes residual R from your chosen levels and
   compares it to the MEM target ("mem_target").
@@ -36,6 +43,9 @@ constraints: |
   - Output JSON ONLY: a top-level JSON ARRAY of objects, one per input row, SAME order and length.
   - residual_E/PF/PND/PNM/S MUST each be one of the allowed ordinal labels for that factor.
   - Residual levels must be at or below the corresponding initial level (never riskier).
+  - A factor may drop below its initial level ONLY if a matching-class measure (PF↔R, PND/PNM↔SF, E↔P,
+    S↔severity-reducing) is present in this row; otherwise keep it unchanged. No uniform multiplier.
+  - residual_rationale must name the measure justifying each reduced factor (non-empty when any factor drops).
   - Do NOT output numeric values and do NOT compute the residual product. Do not use the ':' character.
 payload_template: |
   {

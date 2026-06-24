@@ -26,12 +26,27 @@ instructions: |
   A failure mode is what goes wrong at the COMPONENT itself (a wrong/missing/late/unstable
   output, input, internal state, etc.). It is NOT yet the vehicle-level hazard (that is L2).
 
-  COMPONENT LEVEL (required): keep the failure mode at THIS component's level (component_class). For a
-  perception component such as Camera Object Detection, describe the detection output / object list /
+  COMPONENT LEVEL (required, hard rule): keep the failure mode at THIS component's level (component_class).
+  For a perception component such as Camera Object Detection, describe the detection output / object list /
   class / confidence / position / velocity / uncertainty / stale output / observability, e.g. a missed or
-  mislabelled object, a low/over-confident detection, a stale or count-only object list. Do NOT make the
-  detector directly responsible for a braking or steering command — actuation is a downstream effect (L2),
-  not a component-level failure of object detection.
+  mislabelled object, a low/over-confident detection, a stale or count-only object list.
+
+  FORBIDDEN for perception/fusion/localization components — these are downstream control/planning actions,
+  NOT failures of this component, so they MUST NOT appear in failure_mode:
+  braking, steering, throttle, accelerate/decelerate, trajectory, path/route planning, waypoint,
+  control command, actuation/actuator, maneuver, swerve, "the vehicle stops / does not stop in time".
+  The component fails by producing a WRONG OUTPUT; another component reacts to that output (that is L2).
+  NOTE: only downstream control/planning ACTIONS are forbidden. Bare nouns that merely describe the road
+  the component observes — "route", "path", "lane" — are perfectly fine (e.g. "poor adaptation to lighting
+  on the route"). And response-type guidewords (unsafe_fallback, valid_but_unsafe) may describe a degraded
+  response or a count-only output rather than a literal detection token — that is acceptable.
+
+  GOOD (Camera-ObjectDetection): "The object detector fails to detect a cyclist crossing from the right,
+  producing a missed detection (false negative) for the VRU in the scene."
+  BAD  (Camera-ObjectDetection): "The system brakes too late and the vehicle does not stop in time."
+  BAD  (Camera-ObjectDetection): "Detection latency causes the vehicle to steer into the cyclist."
+  For a control component (Control-Braking, Control-Command, …) the OPPOSITE holds: it DOES fail by a wrong/
+  late brake or steering command, and must NOT be described in detection/segmentation/pixel terms.
 
   Use each guideword's "meaning" and "ai_examples" to interpret it, and use the
   "class_questions" to focus on risks that matter for this component class. Ground every

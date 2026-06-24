@@ -4,7 +4,13 @@ import pytest
 from unittest.mock import MagicMock, patch
 from typing import Any, Dict, List
 
-from src.models import Guideword
+# The classic-HAZOP ``Guideword`` enum was removed in the AI-HAZOP-8800 migration;
+# the guideword set now lives in src/catalogues/guidewords.yaml. Keep the 11 standard
+# ids here so the legacy fixtures below still import cleanly.
+_STANDARD_GUIDEWORDS = [
+    "no", "more", "less", "as well as", "part of", "reverse",
+    "other than", "early", "late", "before", "after",
+]
 
 
 # ============================================================================
@@ -89,7 +95,7 @@ def sample_l3_row_missing_triage(sample_l2_row) -> Dict[str, Any]:
 @pytest.fixture
 def all_guidewords() -> List[str]:
     """List of all 11 HAZOP guideword string values."""
-    return [g.value for g in Guideword]
+    return list(_STANDARD_GUIDEWORDS)
 
 
 @pytest.fixture
@@ -101,7 +107,7 @@ def sample_functions() -> List[str]:
 @pytest.fixture
 def sample_guideword_map() -> Dict[str, str]:
     """Sample guideword map for testing."""
-    return {g.value: g.value for g in Guideword}
+    return {g: g for g in _STANDARD_GUIDEWORDS}
 
 
 # ============================================================================
@@ -285,44 +291,25 @@ def graph_state_after_l3(graph_state_after_l2, full_l3_coverage_rows) -> Dict[st
 #                         PYDANTIC MODEL FIXTURES
 # ============================================================================
 
+# The classic-HAZOP pydantic row models (HazopL1Row/HazopL2Row/HazopL3Row) and the
+# Guideword enum were removed in the AI-HAZOP-8800 migration. These fixtures are kept
+# only for legacy tests; they skip cleanly so the rest of the suite can still run.
 @pytest.fixture
 def sample_l1_pydantic():
-    """Sample L1 row as Pydantic model."""
-    from src.models import HazopL1Row
-    return HazopL1Row(
-        row_id="L1-0",
-        function="Braking",
-        guideword=Guideword.NO,
-        deviation="No braking action",
-    )
+    """Legacy classic-HAZOP L1 model (removed in AI-HAZOP-8800 migration)."""
+    pytest.skip("classic-HAZOP HazopL1Row/Guideword removed in AI-HAZOP-8800 migration")
 
 
 @pytest.fixture
 def sample_l2_pydantic():
-    """Sample L2 row as Pydantic model."""
-    from src.models import HazopL2Row
-    return HazopL2Row(
-        row_id="L2-0",
-        function="Braking",
-        guideword=Guideword.NO,
-        deviation="No braking action",
-        cause="Hydraulic failure",
-    )
+    """Legacy classic-HAZOP L2 model (removed in AI-HAZOP-8800 migration)."""
+    pytest.skip("classic-HAZOP HazopL2Row/Guideword removed in AI-HAZOP-8800 migration")
 
 
 @pytest.fixture
 def sample_l3_pydantic():
-    """Sample L3 row as Pydantic model."""
-    from src.models import HazopL3Row
-    return HazopL3Row(
-        row_id="L3-0",
-        function="Braking",
-        guideword=Guideword.NO,
-        deviation="No braking action",
-        cause="Hydraulic failure",
-        effect="Vehicle cannot stop",
-        potentially_dangerous=True,
-    )
+    """Legacy classic-HAZOP L3 model (removed in AI-HAZOP-8800 migration)."""
+    pytest.skip("classic-HAZOP HazopL3Row/Guideword removed in AI-HAZOP-8800 migration")
 
 
 # ============================================================================

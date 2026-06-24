@@ -15,6 +15,12 @@ instructions: |
   "improve detection", "improve accuracy", "ensure safety", "improve performance", or "enhance
   robustness" — name the specific hazardous behavior the goal prevents or controls.
 
+  DISTINCTNESS (hard rule): the goals MUST be mutually distinct — each addresses a DIFFERENT aspect of the
+  hazard, never a rephrasing of another. Do NOT emit "detect the cyclist", "ensure the cyclist is
+  detected", and "prevent assuming the path is clear" as three goals — that is one goal said three ways.
+  Prefer FEWER goals over redundant ones: output a single goal when one objective covers the hazard, and
+  add a second/third ONLY when it captures a genuinely separate objective.
+
   STRICT SCOPE: output ONLY the safety goals. Do NOT output measures, evidence, or risk, and NEVER
   write reviewer/validator/repair instructions or copy any suggestion text.
 

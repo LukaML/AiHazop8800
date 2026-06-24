@@ -27,6 +27,8 @@ from .catalogue_loader import (
     load_catalogue,
 )
 from .row_utils import _suffix, _is_meta_text, _scrub_meta
+from .risk_model import acceptance_criterion_text
+from .validators import is_exportable_row, is_safety_relevant, incomplete_reason
 
 logger = logging.getLogger(__name__)
 
@@ -120,10 +122,17 @@ def assemble_worksheet(state_out: Dict[str, Any]) -> List[Dict[str, Any]]:
         # Coverage: every configured guideword (every L1 row) is kept so the worksheet
         # has exactly one row per guideword. Invalid L1 rows are still blocked from
         # downstream phases (see graph_full._gen_l2); meta text is scrubbed below.
-        dangerous = bool(r2.get("potentially_dangerous", False))
         ir = r3.get("initial_risk")
         rr = r7.get("residual_risk")
+        merged_raw: Dict[str, Any] = {}
+        for src in (r1, r2, r3, r4, r5, r6, r7, r8):
+            if isinstance(src, dict):
+                merged_raw.update(src)
+        # Safety relevance drives which downstream columns are populated. is_safety_relevant honours
+        # the L2 triage flag and also catches VRU/collision rows (architecture §6).
+        dangerous = is_safety_relevant(merged_raw)
         out.append({
+            "hazard_id": r1.get("row_id", ""),
             "component": r1.get("component", ""),
             "component_class": r1.get("component_class", ""),
             "aspect": r1.get("aspect", ""),
@@ -136,6 +145,7 @@ def assemble_worksheet(state_out: Dict[str, Any]) -> List[Dict[str, Any]]:
             "potentially_dangerous": dangerous,
             "initial_risk": ("%.2e" % ir) if isinstance(ir, (int, float)) else "",
             "risk_status": r3.get("risk_status", "") if dangerous else "",
+            "acceptance_criterion": acceptance_criterion_text() if dangerous else "",
             "safety_decision": r4.get("safety_decision", "") if dangerous else "",
             "ai_safety_goals": _join(r5.get("ai_safety_goals")),
             "measures": _measures(r6),
@@ -143,7 +153,16 @@ def assemble_worksheet(state_out: Dict[str, Any]) -> List[Dict[str, Any]]:
             "residual_status": r7.get("residual_status", ""),
             "evidence": _join(r8.get("evidence")),
             "open_assumptions": _join(r8.get("open_assumptions")),
+            # Internal status (PART 9) — outside the paper columns; marks but never omits.
+            "_complete": is_exportable_row(merged_raw),
+            "_incomplete_reason": incomplete_reason(merged_raw),
         })
+    if logger.isEnabledFor(logging.INFO):
+        for r in out:
+            if not r.get("_complete", True):
+                logger.info("INCOMPLETE row %s (guideword=%s): %s",
+                            r.get("hazard_id", "?"), r.get("guideword", "?"),
+                            r.get("_incomplete_reason") or "unknown")
     return out
 
 
@@ -151,25 +170,29 @@ def assemble_worksheet(state_out: Dict[str, Any]) -> List[Dict[str, Any]]:
 #        Output writers
 # =========================
 
+# Columns mirror the AI-HAZOP-8800 paper §12 template (plus the useful Risk/Residual
+# Status columns). No "Dangerous" column — danger is an internal flag only.
 _WORKSHEET_COLUMNS = [
+    ("hazard_id", "Hazard ID"),
     ("component", "Component"),
     ("component_class", "Class"),
     ("aspect", "Aspect"),
     ("odd", "ODD"),
     ("scenario", "Scenario"),
-    ("guideword", "Guideword"),
-    ("failure_mode", "Failure Mode"),
-    ("hazardous_behavior", "Hazardous Behavior"),
-    ("potential_harm", "Potential Harm"),
-    ("initial_risk", "Initial Risk"),
+    ("guideword", "Guideword/Question"),
+    ("failure_mode", "Failure mode"),
+    ("hazardous_behavior", "Hazardous behavior"),
+    ("potential_harm", "Potential harm"),
+    ("initial_risk", "Initial risk"),
     ("risk_status", "Risk Status"),
-    ("safety_decision", "Safety Decision"),
-    ("ai_safety_goals", "AI Safety Goals"),
+    ("acceptance_criterion", "Acceptance criterion"),
+    ("safety_decision", "Safety decision"),
+    ("ai_safety_goals", "AI Safety Goal"),
     ("measures", "Measures"),
-    ("residual_risk", "Residual Risk"),
+    ("residual_risk", "Residual risk"),
     ("residual_status", "Residual Status"),
     ("evidence", "Evidence"),
-    ("open_assumptions", "Open Assumptions"),
+    ("open_assumptions", "Open assumptions"),
 ]
 
 
@@ -180,43 +203,60 @@ def write_html(rows: List[Dict[str, Any]], path: str, acceptance: str = "") -> N
     def esc(x):
         return _html.escape("" if x is None else str(x))
 
+    def _cls(key, val):
+        v = str(val or "").strip().upper()
+        if key in ("initial_risk", "residual_risk"):
+            return "num"
+        if key in ("risk_status", "residual_status"):
+            return "status-ok" if v == "ACCEPTABLE" else ("status-above" if v else "")
+        if key == "safety_decision":
+            return "dec-accept" if v == "ACCEPT" else ("dec-act" if v else "")
+        return ""
+
     ths = "".join(f"<th>{esc(label)}</th>" for _, label in _WORKSHEET_COLUMNS)
     head = f"""<!doctype html><html><head><meta charset="utf-8">
 <title>AI-HAZOP-8800 Worksheet</title>
 <style>
-body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:20px;}}
-table{{border-collapse:collapse;width:100%;}}
-th,td{{border:1px solid #ddd;padding:8px;vertical-align:top;font-size:13px;}}
-th{{background:#f5f5f5;text-align:left;}}
-small{{color:#666;}}
-code{{background:#f0f0f0;padding:2px 4px;border-radius:4px;}}
+body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:16px;color:#1f2933;}}
+.wrap{{overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-top:10px;}}
+table{{border-collapse:collapse;width:100%;font-size:12px;}}
+th,td{{border:1px solid #e2e8f0;padding:6px 8px;vertical-align:top;text-align:left;max-width:300px;overflow-wrap:anywhere;}}
+thead th{{position:sticky;top:0;background:#1e3a8a;color:#fff;font-weight:600;}}
+tbody tr:nth-child(even){{background:#f8fafc;}}
+tr.dangerous{{background:#fff5f5;}}
+tr.incomplete{{outline:2px solid #f59e0b;}}
+td.num{{font-family:ui-monospace,Menlo,Consolas,monospace;white-space:nowrap;text-align:right;}}
+.status-ok{{color:#067647;font-weight:600;}}.status-above{{color:#b42318;font-weight:600;}}
+.dec-accept{{color:#067647;font-weight:600;}}.dec-act{{color:#b54708;font-weight:600;}}
+small{{color:#64748b;}} code{{background:#eef2ff;padding:2px 6px;border-radius:6px;font-weight:600;}}
 </style></head><body>
 <h1>AI-HAZOP-8800 Worksheet</h1>
-<p><small>Generated by the L1→L8 AI-HAZOP-8800 pipeline. Acceptance criterion: {esc(acceptance)}.</small></p>
-<table>
-<thead><tr><th>#</th>{ths}<th>Dangerous</th></tr></thead><tbody>
+<p><small>Generated by the L1→L8 AI-HAZOP-8800 pipeline. Acceptance criterion: {esc(acceptance)}. Rows outlined amber are incomplete (failed final validation).</small></p>
+<div class="wrap"><table>
+<thead><tr>{ths}</tr></thead><tbody>
 """
     body = []
-    prev_gw_group = None
-    for i, r in enumerate(rows, 1):
-        dangerous = bool(r.get("potentially_dangerous"))
-        dbg = "#fdd" if dangerous else "#dfd"
-        dtx = "Yes" if dangerous else "No"
+    for r in rows:
+        classes = []
+        if r.get("potentially_dangerous"):
+            classes.append("dangerous")
+        reason = ""
+        if not r.get("_complete", True):
+            classes.append("incomplete")
+            reason = r.get("_incomplete_reason") or "incomplete (failed final validation)"
+        row_cls = f" class='{' '.join(classes)}'" if classes else ""
+        title_attr = f" title='{esc(reason)}'" if reason else ""
         tds = []
         for key, _ in _WORKSHEET_COLUMNS:
             val = r.get(key, "")
+            cls = _cls(key, val)
+            attr = f" class='{cls}'" if cls else ""
             if key == "guideword":
-                tds.append(f"<td><code>{esc(val)}</code></td>")
+                tds.append(f"<td{attr}><code>{esc(val)}</code></td>")
             else:
-                tds.append(f"<td>{esc(val)}</td>")
-        body.append(
-            "<tr>"
-            f"<td>{i}</td>"
-            + "".join(tds)
-            + f"<td style='background:{dbg};text-align:center;'>{dtx}</td>"
-            "</tr>"
-        )
-    tail = "</tbody></table></body></html>"
+                tds.append(f"<td{attr}>{esc(val)}</td>")
+        body.append(f"<tr{row_cls}{title_attr}>" + "".join(tds) + "</tr>")
+    tail = "</tbody></table></div></body></html>"
     with open(path, "w", encoding="utf-8") as f:
         f.write(head + "\n".join(body) + tail)
 
@@ -224,13 +264,16 @@ code{{background:#f0f0f0;padding:2px 4px;border-radius:4px;}}
 def write_csv(rows: List[Dict[str, Any]], path: str) -> None:
     import csv
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    cols = [label for _, label in _WORKSHEET_COLUMNS] + ["Dangerous"]
+    # Paper columns + trailing internal "Complete"/"Reason" status (outside the paper worksheet).
+    cols = [label for _, label in _WORKSHEET_COLUMNS] + ["Complete", "Reason"]
     with open(path, "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols)
         w.writeheader()
         for r in rows:
             out = {label: r.get(key, "") for key, label in _WORKSHEET_COLUMNS}
-            out["Dangerous"] = "Yes" if r.get("potentially_dangerous") else "No"
+            complete = r.get("_complete", True)
+            out["Complete"] = "Yes" if complete else "No"
+            out["Reason"] = "" if complete else (r.get("_incomplete_reason") or "incomplete")
             w.writerow(out)
 
 

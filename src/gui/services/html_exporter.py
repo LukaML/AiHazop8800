@@ -141,15 +141,29 @@ def _rating_display(rating) -> tuple:
     }.get(value, ("-", "color:#999;text-align:center;"))
 
 
+def _cell_class(key: str, value: Any) -> str:
+    v = str(value or "").strip().upper()
+    if key in ("initial_risk", "residual_risk"):
+        return "num"
+    if key in ("risk_status", "residual_status"):
+        return "status-ok" if v == "ACCEPTABLE" else ("status-above" if v else "")
+    if key == "safety_decision":
+        return "dec-accept" if v == "ACCEPT" else ("dec-act" if v else "")
+    return ""
+
+
 def _build_html(rows: List[RowState], run_id: str) -> str:
     ths = "".join(f"<th>{_escape(label)}</th>" for _, label in _WORKSHEET_COLUMNS)
 
     body = []
-    for i, row in enumerate(rows, 1):
+    for row in rows:
         final = row.final or {}
-        dangerous = bool(final.get("potentially_dangerous"))
-        dbg = "#fdd" if dangerous else "#dfd"
-        dtx = "Yes" if dangerous else "No"
+        classes = []
+        if final.get("potentially_dangerous"):
+            classes.append("dangerous")
+        if getattr(row, "complete", True) is False:
+            classes.append("incomplete")
+        row_cls = f" class='{' '.join(classes)}'" if classes else ""
 
         tds = []
         for key, _ in _WORKSHEET_COLUMNS:
@@ -160,14 +174,14 @@ def _build_html(rows: List[RowState], run_id: str) -> str:
             elif key == "guideword":
                 tds.append(f"<td><code>{_escape(_display(final, key))}</code></td>")
             else:
-                tds.append(f"<td>{_escape(_display(final, key))}</td>")
+                cls = _cell_class(key, final.get(key))
+                attr = f" class='{cls}'" if cls else ""
+                tds.append(f"<td{attr}>{_escape(_display(final, key))}</td>")
 
         rating_text, rating_style = _rating_display(row.rating)
         body.append(
-            "<tr>"
-            f"<td>{i}</td>"
+            f"<tr{row_cls}>"
             + "".join(tds)
-            + f"<td style='background:{dbg};text-align:center;'>{dtx}</td>"
             + f"<td style='{rating_style}'>{rating_text}</td>"
             "</tr>"
         )
@@ -176,16 +190,22 @@ def _build_html(rows: List[RowState], run_id: str) -> str:
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>AI-HAZOP-8800 Worksheet</title>
 <style>
-body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:20px;}}
-table{{border-collapse:collapse;width:100%;}}
-th,td{{border:1px solid #ddd;padding:8px;vertical-align:top;font-size:13px;}}
-th{{background:#f5f5f5;text-align:left;}}
-small{{color:#666;}}
-code{{background:#f0f0f0;padding:2px 4px;border-radius:4px;}}
+body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:16px;color:#1f2933;}}
+.wrap{{overflow-x:auto;border:1px solid #e2e8f0;border-radius:8px;margin-top:10px;}}
+table{{border-collapse:collapse;width:100%;font-size:12px;}}
+th,td{{border:1px solid #e2e8f0;padding:6px 8px;vertical-align:top;text-align:left;max-width:300px;overflow-wrap:anywhere;}}
+thead th{{position:sticky;top:0;background:#1e3a8a;color:#fff;font-weight:600;}}
+tbody tr:nth-child(even){{background:#f8fafc;}}
+tr.dangerous{{background:#fff5f5;}}
+tr.incomplete{{outline:2px solid #f59e0b;}}
+td.num{{font-family:ui-monospace,Menlo,Consolas,monospace;white-space:nowrap;text-align:right;}}
+.status-ok{{color:#067647;font-weight:600;}}.status-above{{color:#b42318;font-weight:600;}}
+.dec-accept{{color:#067647;font-weight:600;}}.dec-act{{color:#b54708;font-weight:600;}}
+small{{color:#64748b;}} code{{background:#eef2ff;padding:2px 6px;border-radius:6px;font-weight:600;}}
 </style></head><body>
 <h1>AI-HAZOP-8800 Worksheet</h1>
-<p><small>Run ID: {_escape(run_id)} | Exported from GUI</small></p>
-<table>
-<thead><tr><th>#</th>{ths}<th>Dangerous</th><th>Rating</th></tr></thead><tbody>
+<p><small>Run ID: {_escape(run_id)} | Exported from GUI. Rows outlined amber are incomplete (failed final validation).</small></p>
+<div class="wrap"><table>
+<thead><tr>{ths}<th>Rating</th></tr></thead><tbody>
 {tbody}
-</tbody></table></body></html>"""
+</tbody></table></div></body></html>"""

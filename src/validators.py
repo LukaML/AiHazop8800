@@ -29,6 +29,7 @@ from .models import (
 )
 from .risk_model import factor_value, FACTORS
 from .row_utils import _row_get, WRAPPER_KEYS, _is_meta_text
+from .catalogue_loader import get_component_level
 
 __all__ = [
     "parse_rows_safely",
@@ -43,6 +44,8 @@ __all__ = [
     "build_validator_report",
     "is_valid_l1_row",
     "is_exportable_row",
+    "is_safety_relevant",
+    "incomplete_reason",
 ]
 
 _MODEL_PREFIX = {
@@ -224,20 +227,58 @@ def _check_specific_hazard(rows: List[Any]) -> List[str]:
     return issues
 
 
-L1_MIN_WORDS = 8
+def _check_component_level(rows: List[Any]) -> List[str]:
+    """Soft quality check: flag L1 failure modes that drift to a downstream component (PART 3).
+
+    A perception failure mode should describe a wrong *perception output* (missed/false/mislocated
+    detection), not a downstream control/planning ACTION ('brakes late', 'steers wrong'). We flag
+    only the strong, unambiguous signal — a forbidden downstream **action** term in the failure_mode.
+
+    This is a SOFT validator (drives the L1 repair loop); it MUST NOT be used to hard-drop a row from
+    downstream phases — see ``is_valid_l1_row``. Earlier this also required at least one perception
+    keyword, but that false-rejected legitimate AI-specific guidewords (e.g. ``unsafe_fallback`` →
+    "a sudden unsafe stop … as a degradation response", ``valid_but_unsafe`` → "count alone without
+    position …"), so the positive requirement was removed.
+    """
+    issues: List[str] = []
+    for i, r in enumerate(rows):
+        rid = _row_get(r, "row_id")
+        cls = str(_row_get(r, "component_class") or "")
+        fm = str(_row_get(r, "failure_mode") or "").strip()
+        if not fm:
+            continue
+        rule = get_component_level(cls)
+        if not rule:
+            continue
+        low = fm.lower()
+        level = rule.get("level", "component")
+        hit = next((t for t in rule.get("forbidden_terms", []) if t in low), None)
+        if hit:
+            issues.append(
+                f"row[{i}] (row_id={rid}) failure_mode uses downstream term '{hit}', but {cls} is a "
+                f"{level}-level component; describe its own wrong output (e.g. a missed/false/mislocated "
+                f"detection), not a control/planning action"
+            )
+    return issues
+
+
+# Soft nudge only (drives the L1 repair loop via _check_min_words). NEVER used to drop a row.
+L1_MIN_WORDS = 6
 
 
 def is_valid_l1_row(row: Any) -> bool:
-    """Hard L1 gate: a failure_mode must be present, substantial, and not meta text.
+    """Hard L1 gate — MINIMAL by design: block only genuinely unusable rows.
 
-    Used to BLOCK invalid L1 rows from downstream phases and from export (a row that
-    fails this never gets L2-L8 generated and is omitted from the worksheet)."""
+    PRINCIPLE: a row whose failure_mode is a non-empty real sentence is NEVER dropped from L2-L8.
+    Quality concerns (word count, component level, distinctness, specificity) are SOFT — they drive
+    the bounded repair loop via the ``validate_l1_payload`` checks, but must NOT delete a row here, or
+    a valid concise failure mode (e.g. a 7-word "Left/right confusion mislocates the cyclist") would
+    silently lose all of L2-L8. The only hard blocks are an empty failure_mode or pure meta/instruction
+    text (true garbage); such a row still appears in the worksheet, marked incomplete with a reason."""
     fm = _row_get(row, "failure_mode")
     if not isinstance(fm, str) or not fm.strip():
         return False
     if _is_meta_text(fm):
-        return False
-    if len(fm.split()) < L1_MIN_WORDS:
         return False
     return True
 
@@ -379,16 +420,25 @@ def _check_evidence(rows: List[Any]) -> List[str]:
                 f"test or review activity that verifies a specific measure"
             )
 
+        referenced: set = set()
+        for e in items:
+            referenced |= _measure_ids(e)
+
         if measure_ids:
-            referenced: set = set()
-            for e in items:
-                referenced |= _measure_ids(e)
             uncovered = sorted(measure_ids - referenced)
             if uncovered:
                 issues.append(
                     f"row[{i}] (row_id={rid}) measures {uncovered} have no evidence; add an evidence item "
                     f"that references each measure id (e.g. '(SF1) fault injection ...')"
                 )
+
+        # PART 7: evidence must not reference a measure id that does not exist in this row.
+        phantom = sorted(referenced - measure_ids)
+        if phantom:
+            issues.append(
+                f"row[{i}] (row_id={rid}) evidence references measure id(s) {phantom} that are not present "
+                f"in this row's measures; reference only ids that exist in R/SF/P"
+            )
     return issues
 
 
@@ -406,6 +456,40 @@ def _check_accept_assumptions(rows: List[Any]) -> List[str]:
                     f"row[{i}] (row_id={rid}) accepts a dangerous hazard but lists no open_assumptions; "
                     f"an ACCEPT of a dangerous hazard must state the assumptions that justify acceptance"
                 )
+    return issues
+
+
+_WEAK_ASSUMPTION_PHRASES = (
+    "accurately reflects", "works as intended", "works as expected", "is correct",
+    "is accurate", "is reliable", "is sufficient", "is adequate", "performs as expected",
+    "performs well", "is valid", "holds true", "as designed", "no issues", "is fine",
+    "the system is safe", "everything works",
+)
+
+
+def _check_weak_assumptions(rows: List[Any]) -> List[str]:
+    """Reject generic, untestable open_assumptions (PART 8).
+
+    An open assumption should name a concrete, falsifiable precondition (a specific dataset,
+    operating limit, monitor coverage, or external party), not a tautological reassurance like
+    'the dataset audit accurately reflects performance'."""
+    issues: List[str] = []
+    for i, r in enumerate(rows):
+        rid = _row_get(r, "row_id")
+        oa = _row_get(r, "open_assumptions")
+        if not isinstance(oa, list):
+            continue
+        for a in oa:
+            s = str(a or "").strip()
+            if not s:
+                continue
+            low = s.lower()
+            if len(_content_tokens(s)) < 4 or any(p in low for p in _WEAK_ASSUMPTION_PHRASES):
+                issues.append(
+                    f"row[{i}] (row_id={rid}) open assumption '{s}' is weak/untestable; state a concrete, "
+                    f"falsifiable precondition (specific data/ODD limit/monitor/responsible party)"
+                )
+                break
     return issues
 
 
@@ -471,6 +555,184 @@ def _check_safety_decision(rows: List[Any]) -> List[str]:
     return issues
 
 
+# Vulnerable-road-user terms and contact verbs (used by VRU severity + triage checks).
+_VRU_RE = re.compile(
+    # Prefix tokens use \w* so plurals/inflections match (pedestrian/pedestrians, cyclist/cyclists).
+    # A singular-only pattern silently misses the plural forms the LLM commonly writes.
+    r"\b(pedestrian\w*|cyclist\w*|bicyclist\w*|bicycle\w*|motorcyclist\w*|motorcycle\w*|"
+    r"child|children|kid\w*|vulnerable road user\w*|vru|wheelchair\w*|scooter\w*|"
+    r"person|persons|people|jogger\w*|pram\w*|stroller\w*)\b",
+    re.I,
+)
+_CONTACT_RE = re.compile(
+    # Prefix tokens use \w* so inflections match (collision/collisions, injury/injured/injuries,
+    # impact/impacts, fatal/fatally, …). A bare-singular-only pattern (e.g. "injur\b") silently
+    # misses the plural/inflected forms that dominate real text.
+    r"\b(colli\w*|strik\w*|struck|hit|hits|hitting|run over|runs over|run down|"
+    r"impact\w*|crash\w*|injur\w*|fatal\w*|death\w*|kill\w*)\b",
+    re.I,
+)
+# Guidewords whose deviation hides or mislocates a road user (must be flagged dangerous if a VRU is in play).
+_HIDING_GUIDEWORDS = {
+    "no", "less", "late", "frozen", "wrong", "inverted", "misordered", "intermittent",
+    "uncertain_but_confident", "valid_but_unsafe", "unmonitored",
+}
+
+# Explicit "there is no harm" statements — the ONLY way a row carrying a hazard+harm is treated as
+# non-safety-relevant (so genuinely benign rows can still end after L2 per architecture §6).
+_NO_HARM_RE = re.compile(
+    r"\b(no harm|without harm|harmless|no injur\w*|no road user|no one|no-one|nobody|"
+    r"no person|no pedestrian|no cyclist|no other road user|no impact|no effect|"
+    r"negligible|not safety[- ]relevant|no safety (?:impact|relevance|concern))\b",
+    re.I,
+)
+
+
+def _row_text(r: Any, *fields: str) -> str:
+    return " ".join(str(_row_get(r, f) or "") for f in fields)
+
+
+def is_safety_relevant(row: Any) -> bool:
+    """Decide whether a row must continue through L3 (Initial Risk) and L4 (Acceptance).
+
+    Per the architecture doc (§6 "Safety relevance check after L2"), a row continues to L3/L4 when it is
+    safety-relevant and may END after L2 otherwise. ``potentially_dangerous`` is the L2 triage flag, but
+    the LLM is unreliable (it writes a real VRU harm yet flags not-dangerous), and keyword matching alone
+    leaks on phrasing. So we use CONTENT, not just keywords:
+      1. ``potentially_dangerous`` truthy → relevant;
+      2. the hazard/harm names a vulnerable road user or a contact/injury outcome → relevant;
+      3. the row HAS a real hazardous_behavior AND a real potential_harm → relevant, UNLESS the harm
+         explicitly states there is no harm (``_NO_HARM_RE``). This is the hard invariant "a row with a
+         hazard and a harm must be risk-assessed" and makes regex misses unable to silently drop a row.
+    Only a row whose harm explicitly negates harm (or that has no harm at all) may end after L2.
+    """
+    if _truthy_flag(_row_get(row, "potentially_dangerous")):
+        return True
+    hb = str(_row_get(row, "hazardous_behavior") or "").strip()
+    ph = str(_row_get(row, "potential_harm") or "").strip()
+    # Explicit "no harm" is the only escape — checked first so phrases like "no safety impact" are not
+    # mis-read as a collision by the contact regex.
+    if ph and _NO_HARM_RE.search(ph):
+        return False
+    text = f"{hb} {ph}"
+    if _VRU_RE.search(text) or _CONTACT_RE.search(text):
+        return True
+    if hb and ph:
+        return True
+    return False
+
+
+def _truthy_flag(v: Any) -> bool:
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "yes", "1")
+    return bool(v)
+
+
+def _check_vru_severity(rows: List[Any]) -> List[str]:
+    """L3: a deviation that leads to striking/colliding with a VRU cannot have low severity.
+
+    If the hazard/harm text describes contact with a vulnerable road user, severity S must be
+    at least 'serious' (>= 0.6) — a pedestrian/cyclist impact is not 'moderate'."""
+    issues: List[str] = []
+    for i, r in enumerate(rows):
+        rid = _row_get(r, "row_id")
+        text = _row_text(r, "hazardous_behavior", "potential_harm")
+        if not (_VRU_RE.search(text) and _CONTACT_RE.search(text)):
+            continue
+        s = factor_value("S", _row_get(r, "S"))
+        if s is not None and s < 0.6:
+            issues.append(
+                f"row[{i}] (row_id={rid}) describes contact with a vulnerable road user but severity S "
+                f"is below 'serious'; set S to serious or fatal for a pedestrian/cyclist impact"
+            )
+    return issues
+
+
+def _context_key(r: Any) -> tuple:
+    return (
+        str(_row_get(r, "component") or ""),
+        str(_row_get(r, "aspect") or ""),
+        str(_row_get(r, "scenario") or ""),
+    )
+
+
+def _check_risk_diversity(rows: List[Any], factor_fields: List[str], noun: str) -> List[str]:
+    """Reject lazy uniform risk: within one (component, aspect, scenario) context the factor
+    tuples must not be identical across all rows. Different deviations carry different risk."""
+    issues: List[str] = []
+    groups: Dict[tuple, List[tuple]] = {}
+    for r in rows:
+        key = _context_key(r)
+        tup = tuple(str(_row_get(r, f) or "").strip().lower() for f in factor_fields)
+        groups.setdefault(key, []).append((str(_row_get(r, "row_id")), tup))
+    for key, entries in groups.items():
+        if len(entries) < 3:
+            continue
+        distinct = {tup for _, tup in entries}
+        if len(distinct) == 1:
+            ids = ", ".join(rid for rid, _ in entries[:4])
+            issues.append(
+                f"context {key} has {len(entries)} rows with IDENTICAL {noun} factors ({ids}…); "
+                f"vary the factors so each deviation's {noun} reflects its own exposure/likelihood/severity"
+            )
+    return issues
+
+
+def _check_residual_links(rows: List[Any]) -> List[str]:
+    """L7: a residual factor may improve over its initial level only if a measure of the matching
+    class exists, and residual_rationale must be present. PF↔R, PND/PNM↔SF, E↔P, S↔severity measure."""
+    issues: List[str] = []
+    pair = {"PF": "respecifications", "PND": "safety_functions", "PNM": "safety_functions",
+            "E": "passive_operational_measures"}
+    for i, r in enumerate(rows):
+        rid = _row_get(r, "row_id")
+        has = {f: bool([m for m in (_row_get(r, fld) or []) if str(m).strip()]) if isinstance(_row_get(r, fld), list) else False
+               for f, fld in pair.items()}
+        improved = []
+        for f in ("E", "PF", "PND", "PNM"):
+            iv = factor_value(f, _row_get(r, f))
+            rv = factor_value(f, _row_get(r, "residual_" + f))
+            if iv is not None and rv is not None and rv < iv:
+                improved.append(f)
+                if not has.get(f, False):
+                    cls = {"PF": "respecification (R)", "PND": "safety function (SF)",
+                           "PNM": "safety function (SF)", "E": "operational measure (P)"}[f]
+                    issues.append(
+                        f"row[{i}] (row_id={rid}) residual {f} is reduced but no {cls} measure is listed; "
+                        f"a factor may improve only if a measure of the matching class addresses it"
+                    )
+        sv_i = factor_value("S", _row_get(r, "S"))
+        sv_r = factor_value("S", _row_get(r, "residual_S"))
+        if sv_i is not None and sv_r is not None and sv_r < sv_i:
+            improved.append("S")
+        if improved and not str(_row_get(r, "residual_rationale") or "").strip():
+            issues.append(
+                f"row[{i}] (row_id={rid}) reduces factors {improved} but residual_rationale is empty; "
+                f"explain which measure justifies each reduction"
+            )
+    return issues
+
+
+def _check_triage(rows: List[Any]) -> List[str]:
+    """L2: any deviation whose hazard/harm names a vulnerable road user or a contact/injury
+    outcome must be triaged potentially_dangerous=True (architecture §6 safety relevance).
+
+    This matches ``is_safety_relevant`` so the validator/repair loop agrees with the deterministic
+    L2 triage stamp. The guideword is no longer restricted to the 'hiding' set — a cyclist
+    collision is safety-relevant regardless of which guideword produced it."""
+    issues: List[str] = []
+    for i, r in enumerate(rows):
+        rid = _row_get(r, "row_id")
+        text = _row_text(r, "failure_mode", "hazardous_behavior", "potential_harm")
+        if (_VRU_RE.search(text) or _CONTACT_RE.search(text)) and not _truthy_flag(_row_get(r, "potentially_dangerous")):
+            issues.append(
+                f"row[{i}] (row_id={rid}) hazard/harm names a vulnerable road user or a collision/injury "
+                f"outcome but is not triaged potentially_dangerous=true; such a row is safety-relevant and "
+                f"must continue to L3 Initial Risk and L4 Acceptance"
+            )
+    return issues
+
+
 # ---------------------------------------------------------------------------
 # Public validators — called by the phase engine validate nodes.
 # Each returns (rows, ok, issues).
@@ -484,6 +746,7 @@ def validate_l1_payload(payload: Any, expected_guidewords: List[str]) -> Tuple[L
     issues += _check_distinct(rows, "failure_mode", "failure mode")
     issues += _check_min_words(rows, "failure_mode", L1_MIN_WORDS, "failure_mode")
     issues += _check_no_meta_text(rows, ["failure_mode"])
+    issues += _check_component_level(rows)
     return rows, len(issues) == 0, issues
 
 
@@ -495,6 +758,7 @@ def validate_l2_payload(payload: Any) -> Tuple[List[Any], bool, List[str]]:
     issues += _check_distinct(rows, "hazardous_behavior", "hazardous behavior")
     issues += _check_specific_text(rows, "potential_harm", _VAGUE_HARM_PHRASES, "potential_harm")
     issues += _check_no_meta_text(rows, ["hazardous_behavior", "potential_harm"])
+    issues += _check_triage(rows)
     return rows, len(issues) == 0, issues
 
 
@@ -502,6 +766,8 @@ def validate_l3_payload(payload: Any) -> Tuple[List[Any], bool, List[str]]:
     rows, issues = parse_rows_safely(payload, AIHazopL3Row)
     issues += _check_risk_factors(rows)
     issues += _check_silent_failure_risk(rows)
+    issues += _check_vru_severity(rows)
+    issues += _check_risk_diversity(rows, list(FACTORS), "initial-risk")
     issues += _check_no_meta_text(rows, ["risk_rationale"])
     return rows, len(issues) == 0, issues
 
@@ -534,11 +800,14 @@ def _goal_tag(s: Any) -> int | None:
 
 
 def _check_goal_coverage(rows: List[Any]) -> List[str]:
-    """Every L5 safety goal must be addressed by >=1 L6 measure (ISO 26262 traceability).
+    """Every L5 safety goal must be addressed by L6 measures, including >=1 Safety Function.
 
-    When measures carry [SGk] tags, require each goal 1..N to be tagged. If the model
-    produced no tags at all, fall back to requiring at least as many measures as goals
-    (so the bounded repair loop can still converge instead of spinning)."""
+    ISO 26262 / methodology traceability: each safety goal needs at least one functional safety
+    requirement, and the Safety Function (SF) is the safety mechanism (it reduces PND/PNM). So each
+    goal 1..N must have at least one [SGk]-tagged SF; it MAY also carry R and/or P measures (a goal
+    can have several measures across classes — there is no maximum). When measures carry no [SGk]
+    tags at all, fall back to requiring at least as many measures as goals so the bounded repair loop
+    can still converge instead of spinning. This drives repair only — it never blocks export."""
     issues: List[str] = []
     for i, r in enumerate(rows):
         rid = _row_get(r, "row_id")
@@ -564,6 +833,16 @@ def _check_goal_coverage(rows: List[Any]) -> List[str]:
                 issues.append(
                     f"row[{i}] (row_id={rid}) safety goals {missing} have no measure; "
                     f"add a [SGk]-tagged measure for each uncovered goal"
+                )
+            # Each goal must have at least one Safety Function (SF), not only an R or P.
+            sf = _row_get(r, "safety_functions")
+            sf_covered = {t for t in (_goal_tag(m) for m in sf if str(m).strip()) if t} \
+                if isinstance(sf, list) else set()
+            missing_sf = [k for k in range(1, ng + 1) if k not in missing and k not in sf_covered]
+            if missing_sf:
+                issues.append(
+                    f"row[{i}] (row_id={rid}) safety goals {missing_sf} have no safety function; "
+                    f"every goal needs at least one [SGk]-tagged SF (it may also have R/P)"
                 )
         elif len(measures) < ng:
             issues.append(
@@ -602,9 +881,79 @@ def validate_l5_payload(payload: Any) -> Tuple[List[Any], bool, List[str]]:
     return rows, len(issues) == 0, issues
 
 
+_GOAL_AND_ID_RE = re.compile(r"^\s*(\[?\s*SG\s*\d+\s*\]?\s*[-.:]?\s*)?(\((?:SF|R|P)\s*\d+\)\s*)?", re.I)
+
+
+def _measure_core(text: str) -> str:
+    """Strip a leading [SGk] tag and (R/SF/P id) prefix, returning the normalised measure text."""
+    s = str(text or "").strip()
+    s = _GOAL_AND_ID_RE.sub("", s, count=1)
+    return " ".join(s.lower().split())
+
+
+def _check_measure_repetition(rows: List[Any]) -> List[str]:
+    """Reject copy-paste mitigation: the same measure text reused in >2 rows of one context.
+
+    A measure repeated verbatim across most rows of a (component, aspect, scenario) is generic
+    boilerplate, not a guideword-specific control."""
+    issues: List[str] = []
+    seen: Dict[tuple, Dict[str, List[str]]] = {}
+    for r in rows:
+        key = _context_key(r)
+        bucket = seen.setdefault(key, {})
+        rid = str(_row_get(r, "row_id"))
+        local = set()
+        for f in _MEASURE_FIELDS:
+            v = _row_get(r, f)
+            if not isinstance(v, list):
+                continue
+            for m in v:
+                core = _measure_core(m)
+                if len(core.split()) < 3 or core in local:
+                    continue
+                local.add(core)
+                bucket.setdefault(core, []).append(rid)
+    for key, bucket in seen.items():
+        for core, rids in bucket.items():
+            if len(rids) > 2:
+                issues.append(
+                    f"context {key} reuses the same measure in {len(rids)} rows ({', '.join(rids[:4])}…); "
+                    f"make measures guideword-specific instead of repeating '{core[:60]}'"
+                )
+    return issues
+
+
+def _check_measure_category(rows: List[Any]) -> List[str]:
+    """Sanity-check respecifications against the component level: an R for a perception component must
+    be a data/model/calibration change, not a downstream control/planning action."""
+    issues: List[str] = []
+    for i, r in enumerate(rows):
+        rid = _row_get(r, "row_id")
+        rule = get_component_level(str(_row_get(r, "component_class") or ""))
+        forbidden = rule.get("forbidden_terms", []) if rule else []
+        if not forbidden:
+            continue
+        v = _row_get(r, "respecifications")
+        if not isinstance(v, list):
+            continue
+        for m in v:
+            low = _measure_core(m)
+            hit = next((t for t in forbidden if t in low), None)
+            if hit:
+                issues.append(
+                    f"row[{i}] (row_id={rid}) respecification uses downstream term '{hit}' for a "
+                    f"{rule.get('level','component')}-level component; a respecification (R) must change this "
+                    f"component (data/model/calibration). Put downstream mitigation under safety_functions (SF)"
+                )
+                break
+    return issues
+
+
 def validate_l6_payload(payload: Any) -> Tuple[List[Any], bool, List[str]]:
     rows, issues = parse_rows_safely(payload, AIHazopL6Row)
     issues += _check_goal_coverage(rows)
+    issues += _check_measure_repetition(rows)
+    issues += _check_measure_category(rows)
     issues += _check_no_meta_text(rows, ["respecifications", "safety_functions", "passive_operational_measures"])
     return rows, len(issues) == 0, issues
 
@@ -612,6 +961,8 @@ def validate_l6_payload(payload: Any) -> Tuple[List[Any], bool, List[str]]:
 def validate_l7_payload(payload: Any) -> Tuple[List[Any], bool, List[str]]:
     rows, issues = parse_rows_safely(payload, AIHazopL7Row)
     issues += _check_residual_factors(rows)
+    issues += _check_residual_links(rows)
+    issues += _check_risk_diversity(rows, ["residual_" + f for f in FACTORS], "residual-risk")
     issues += _check_no_meta_text(rows, ["residual_rationale"])
     return rows, len(issues) == 0, issues
 
@@ -621,6 +972,7 @@ def validate_l8_payload(payload: Any) -> Tuple[List[Any], bool, List[str]]:
     issues += _check_list_non_empty(rows, "evidence")
     issues += _check_evidence(rows)
     issues += _check_accept_assumptions(rows)
+    issues += _check_weak_assumptions(rows)
     issues += _check_no_meta_text(rows, ["evidence", "open_assumptions"])
     return rows, len(issues) == 0, issues
 
@@ -648,9 +1000,12 @@ def is_exportable_row(row: Any) -> bool:
         if isinstance(v, list) and any(_is_meta_text(x) for x in v):
             return False
 
-    if not bool(_row_get(row, "potentially_dangerous")):
-        return True  # non-dangerous rows carry only L1/L2 fields — that's fine
+    if not is_safety_relevant(row):
+        return True  # genuinely non-safety-relevant rows may END after L2 (architecture §6)
 
+    # A safety-relevant row MUST carry the L3/L4 results. If L3/L4 produced nothing (e.g. the
+    # LLM mis-triaged the row, or generation failed after max repairs), it is INCOMPLETE — it is
+    # marked, never exported as a clean completed row.
     if not str(_row_get(row, "hazardous_behavior") or "").strip():
         return False
     if not str(_row_get(row, "potential_harm") or "").strip():
@@ -660,6 +1015,8 @@ def is_exportable_row(row: Any) -> bool:
 
     status = str(_row_get(row, "risk_status") or "").strip().upper()
     decision = str(_row_get(row, "safety_decision") or "").strip().upper()
+    if not status or not decision:
+        return False  # safety-relevant row missing Risk Status or Safety Decision is incomplete
     if status == "ACCEPTABLE" and decision and decision != "ACCEPT":
         return False
     if status and status not in ("INCOMPLETE", "ACCEPTABLE") and decision == "ACCEPT":
@@ -669,6 +1026,57 @@ def is_exportable_row(row: Any) -> bool:
         if not (isinstance(goals, list) and any(str(x).strip() for x in goals)):
             return False
     return True
+
+
+def incomplete_reason(row: Any) -> str:
+    """Explain WHY a row is incomplete (returns "" when the row is exportable).
+
+    Mirrors ``is_exportable_row`` but reports the first failing check as a concise
+    "<phase>: <what is missing>" string, so the worksheet/logs can show a clear diagnostic
+    for any row marked incomplete instead of stopping silently."""
+    if is_exportable_row(row):
+        return ""
+
+    fm = _row_get(row, "failure_mode")
+    if not isinstance(fm, str) or not fm.strip():
+        return "L1: failure_mode is empty"
+    if _is_meta_text(fm):
+        return "L1: failure_mode contains reviewer/instruction text"
+
+    for phase, k in (("L1", "failure_mode"), ("L2", "hazardous_behavior"), ("L2", "potential_harm"),
+                     ("L3", "risk_rationale"), ("L4", "acceptance_rationale"), ("L7", "residual_rationale")):
+        if _is_meta_text(_row_get(row, k)):
+            return f"{phase}: meta/instruction text in {k}"
+    for phase, k in (("L5", "ai_safety_goals"), ("L6", "respecifications"), ("L6", "safety_functions"),
+                     ("L6", "passive_operational_measures"), ("L8", "evidence"), ("L8", "open_assumptions")):
+        v = _row_get(row, k)
+        if isinstance(v, list) and any(_is_meta_text(x) for x in v):
+            return f"{phase}: meta/instruction text in {k}"
+
+    if not is_safety_relevant(row):
+        return ""  # not safety-relevant -> exportable, no reason
+
+    if not str(_row_get(row, "hazardous_behavior") or "").strip():
+        return "L2: hazardous_behavior missing (generation stopped before/at L2)"
+    if not str(_row_get(row, "potential_harm") or "").strip():
+        return "L2: potential_harm missing"
+    if not isinstance(_row_get(row, "initial_risk"), (int, float)):
+        return "L3: initial_risk not computed (Initial Risk phase did not complete)"
+    status = str(_row_get(row, "risk_status") or "").strip().upper()
+    decision = str(_row_get(row, "safety_decision") or "").strip().upper()
+    if not status:
+        return "L3: risk_status missing"
+    if not decision:
+        return "L4: safety_decision missing (Acceptance phase did not complete)"
+    if status == "ACCEPTABLE" and decision != "ACCEPT":
+        return f"L4: safety_decision '{decision}' inconsistent with ACCEPTABLE risk_status"
+    if status not in ("INCOMPLETE", "ACCEPTABLE") and decision == "ACCEPT":
+        return f"L4: safety_decision ACCEPT inconsistent with risk_status '{status}'"
+    if decision in ("IMPROVE", "RESTRICT", "INVESTIGATE"):
+        goals = _row_get(row, "ai_safety_goals")
+        if not (isinstance(goals, list) and any(str(x).strip() for x in goals)):
+            return "L5: ai_safety_goals missing for a non-ACCEPT decision"
+    return "incomplete (failed final validation)"
 
 
 def build_validator_report(stage: str, issues: List[str], hint: str | None = None) -> Dict[str, Any]:

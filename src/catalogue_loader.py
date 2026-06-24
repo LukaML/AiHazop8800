@@ -23,6 +23,7 @@ _CATALOGUE_NAMES = (
     "acceptance_criterion",
     "mitigation_taxonomy",
     "evidence_catalogue",
+    "component_levels",
 )
 
 
@@ -88,6 +89,30 @@ def get_class_questions(component_class: str) -> List[str]:
     """Return class-specific questions for a taxonomy class (empty if unknown)."""
     cat = load_catalogue("class_questions")
     return (cat.get("questions") or {}).get(component_class, [])
+
+
+def _class_family(component_class: str) -> str:
+    """Map a taxonomy class id (e.g. 'Camera-ObjectDetection') to its family."""
+    return str(component_class or "").split("-", 1)[0].strip()
+
+
+def get_component_level(component_class: str) -> Dict[str, Any]:
+    """Return the component-level scoping rule for a class (empty dict if none).
+
+    Result keys: ``level`` (str), ``forbidden_terms`` (List[str]),
+    ``required_any`` (List[str]). Lookup is by class *family* (the part before
+    the first '-'), so all 'Camera-*' classes share the perception rule.
+    """
+    cat = load_catalogue("component_levels")
+    families = cat.get("families") or {}
+    rule = families.get(_class_family(component_class))
+    if not isinstance(rule, dict):
+        return {}
+    return {
+        "level": rule.get("level", ""),
+        "forbidden_terms": [str(t).lower() for t in rule.get("forbidden_terms", []) if str(t).strip()],
+        "required_any": [str(t).lower() for t in rule.get("required_any", []) if str(t).strip()],
+    }
 
 
 def get_aspect_hint(aspect: str) -> str:

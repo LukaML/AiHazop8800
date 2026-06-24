@@ -27,26 +27,40 @@ META_PATTERNS = re.compile(
     r"ensure consistency"
     r"|consistency between (the )?risk"
     r"|risk[_ ]status and safety[_ ]decision"
+    r"|safety decision misaligned|misaligned with"
     r"|fix (the )?decision"
     r"|check (the )?risk[_ ]status"
+    r"|update (the )?(safety[_ ]decision|risk[_ ]status)"
+    r"|implement (the )?measures"
+    r"|address the (ai )?safety goal"
+    r"|add missing links"
+    r"|issue detected"
+    r"|the system computes"
     r"|repair instruction"
     r"|reviewer (comment|hint|message|suggestion)"
     r"|validator (hint|message|comment)"
-    r"|validation instruction",
+    r"|validation instruction"
+    # internal snake_case field names accidentally echoed into worksheet prose
+    r"|ai_safety_goals|safety_decision|risk_status|residual_risk|residual_status"
+    r"|potentially_dangerous|open_assumptions|failure_mode|hazardous_behavior|initial_risk",
     re.I,
 )
 
+# Split text into sentences for sentence-level scrubbing.
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
 
 def _is_meta_text(value: Any) -> bool:
-    """True if ``value`` is a string containing unmistakable reviewer/validator meta text."""
+    """True if ``value`` is a string containing reviewer/validator/instruction meta text."""
     return isinstance(value, str) and bool(META_PATTERNS.search(value))
 
 
 def _scrub_meta(value: Any) -> Any:
-    """Last-resort output guard: blank any field value that is reviewer/validator meta text.
+    """Output guard: remove reviewer/validator/instruction text from a field value.
 
-    Strings matching META_PATTERNS become ""; list items are scrubbed and dropped if
-    they become empty; other values pass through unchanged.
+    For a string, drop only the SENTENCES matching META_PATTERNS (preserving good content)
+    and return "" only if nothing survives. List items are scrubbed; any that become empty
+    are dropped. Other values pass through unchanged.
     """
     if isinstance(value, list):
         out = []
@@ -55,9 +69,10 @@ def _scrub_meta(value: Any) -> Any:
             if not (isinstance(s, str) and not s.strip()):
                 out.append(s)
         return out
-    if _is_meta_text(value):
-        return ""
-    return value
+    if not isinstance(value, str) or not META_PATTERNS.search(value):
+        return value
+    kept = [s for s in _SENTENCE_SPLIT.split(value.strip()) if s.strip() and not META_PATTERNS.search(s)]
+    return " ".join(kept).strip()
 
 # Common dict keys that LLMs wrap row arrays in.  Used by _ensure_rows_list,
 # validators.py, and llm_client.py to unwrap {"rows": [...]} → [...].

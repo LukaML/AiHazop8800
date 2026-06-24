@@ -133,6 +133,7 @@ class RowData(BaseModel):
     original: Dict[str, Any] = Field(default_factory=dict)
     final: Dict[str, Any] = Field(default_factory=dict)
     dangerous_final: bool = False
+    complete: bool = True
     rating: Rating = Rating.UNRATED
     edited_flag: bool = False
     regenerated_flag: bool = False

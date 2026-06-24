@@ -101,3 +101,16 @@ def format_risk(risk: Optional[float]) -> str:
     if risk is None:
         return ""
     return f"{risk:.2e}"
+
+
+def acceptance_criterion_text(rationale: str = "") -> str:
+    """Methodology 'Acceptance criterion' cell: just the criterion in use (§12).
+
+    e.g. "MEM target R ≤ 1.0e-05". ``rationale`` is accepted but ignored (the decision
+    rationale lives in Safety decision)."""
+    acc = acceptance()
+    mode = acc.get("mode", "MEM")
+    target = acc.get("mem_target")
+    if mode == "MEM" and isinstance(target, (int, float)):
+        return f"MEM target R ≤ {target:.1e}"
+    return acc.get("game_reference") or "GAME reference"

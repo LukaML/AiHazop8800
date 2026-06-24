@@ -20,15 +20,13 @@ const ResultsTable = {
         this.renderHead();
     },
 
-    colCount() { return Fields.columns.length + 4; },  // checkbox + rowid + cols + dangerous + rating
+    colCount() { return Fields.columns.length + 2; },  // checkbox + cols + rating
 
     renderHead() {
         const th = (label) => `<th class="px-3 py-3 text-left font-semibold text-slate-700">${this.escapeHtml(label)}</th>`;
         this.head.innerHTML = `<tr>
             <th class="px-3 py-3 w-10"><input type="checkbox" id="select-all-checkbox" class="w-4 h-4 accent-blue-600 cursor-pointer"></th>
-            ${th('Row ID')}
             ${Fields.columns.map(c => th(c.label)).join('')}
-            ${th('Dangerous')}
             ${th('Rating')}
         </tr>`;
         const selectAll = document.getElementById('select-all-checkbox');
@@ -53,12 +51,13 @@ const ResultsTable = {
     renderRow(row) {
         const final = row.final || {};
         const dangerous = !!row.dangerous_final;
-        const dangerousClass = dangerous ? 'bg-red-50 text-red-600 font-medium' : 'bg-green-50 text-green-600';
         const ratingClass = this.getRatingClass(row.rating);
         const isSelected = AppState.isRowSelected(row.row_id);
-        const stripe = (row.component_index % 2 === 0) ? 'bg-white' : 'bg-blue-50';
+        // Dangerous rows get a red tint; otherwise alternate by component.
+        const stripe = dangerous ? 'bg-red-50' : ((row.component_index % 2 === 0) ? 'bg-white' : 'bg-blue-50');
 
         let rowClass = `cursor-pointer hover:bg-blue-50 border-b border-slate-200 ${stripe}`;
+        if (row.complete === false) rowClass += ' ring-2 ring-amber-400';  // incomplete (failed final validation)
         if (row.edited_flag) rowClass += ' border-l-4 border-amber-400';
         else if (row.regenerated_flag) rowClass += ' border-l-4 border-blue-500';
 
@@ -77,9 +76,7 @@ const ResultsTable = {
                 <td class="px-3 py-2.5" onclick="event.stopPropagation()">
                     <input type="checkbox" class="w-4 h-4 accent-blue-600 cursor-pointer" ${isSelected ? 'checked' : ''}>
                 </td>
-                <td class="px-3 py-2.5 text-slate-600">${this.escapeHtml(row.display_id || row.row_id)}</td>
                 ${cells}
-                <td class="px-3 py-2.5"><span class="px-2 py-0.5 rounded text-xs ${dangerousClass}">${dangerous ? 'Yes' : 'No'}</span></td>
                 <td class="px-3 py-2.5"><span class="px-2 py-0.5 rounded text-xs font-medium ${ratingClass}">${this.formatRating(row.rating)}</span></td>
             </tr>`;
     },

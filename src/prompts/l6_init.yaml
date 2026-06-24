@@ -16,13 +16,20 @@ instructions: |
     - passive_operational_measures ODD/operational controls that reduce exposure or maintain assumptions
                                   (reduces E, sometimes S).
 
-  TRACEABILITY (required): EVERY safety goal must be addressed by AT LEAST ONE measure. Number the goals
-  by their order in ai_safety_goals (the first goal is SG1, the second SG2, and so on). Begin each measure
-  string with the tag of the goal it serves, written as "[SG1] ", "[SG2] " etc., followed by the
-  requirement sentence. A goal may have several measures across different classes; a measure serves exactly
-  one goal. Choose the class that best fits the goal (a detection/monitoring goal usually needs a
-  safety_function; an "improve the AI" goal usually needs a respecification; an exposure/severity goal
-  usually needs a passive_operational_measure).
+  TRACEABILITY (required): Number the goals by their order in ai_safety_goals (the first goal is SG1, the
+  second SG2, and so on). Begin each measure string with the tag of the goal it serves, written as
+  "[SG1] ", "[SG2] " etc., followed by the requirement sentence. A measure serves exactly one goal.
+
+  COVERAGE (hard rule): handle EACH goal SG1..SGn INDEPENDENTLY — every goal must get its OWN measures,
+  tagged with ITS OWN [SGk]. For each goal separately:
+    * give it AT LEAST ONE Safety Function (SF) tagged with that goal — the SF is the safety mechanism
+      that detects the failure, prevents propagation, or transitions to a safe state (reduces PND/PNM);
+    * ADD a Respecification (R) for that goal where the component itself can be improved (data/model/
+      calibration → reduces PF), and a Passive/Operational measure (P) where exposure/severity can be
+      bounded (ODD/speed/geofence → reduces E/S).
+  DISTRIBUTE measures across ALL goals. NEVER put every measure under SG1 and NEVER leave a goal with no
+  measure — a goal with no [SGk]-tagged SF is invalid. A goal may have several measures (no maximum), but
+  "several per goal" applies to each goal in turn, not as a reason to dump everything onto the first goal.
 
   STABLE IDS (required): give every measure a stable id and place it right after the goal tag, in
   parentheses. Respecifications are (R1), (R2), ...; safety_functions are (SF1), (SF2), ...;
@@ -35,6 +42,25 @@ instructions: |
   UNKNOWN output instead of false absence, stale-output / OOD / absence-of-evidence monitors, and a
   downstream interface contract to the planner. Do NOT write planner-level requirements (path/behavior
   planning) unless the component_class is a Planning component.
+
+  RESPECIFICATION CLASS (hard rule): a respecification (R) changes THIS component (its data, model,
+  calibration, interface). It MUST NOT be a downstream control/planning action. Never put "add automatic
+  braking", "steer away", "replan the trajectory" under respecifications for a perception/fusion/
+  localization component — those belong under safety_functions (SF) as independent downstream mitigations.
+
+  GUIDEWORD-SPECIFIC (hard rule): measures MUST address THIS row's specific deviation, not be the same
+  boilerplate repeated across rows. Tailor them to the guideword, for example:
+    - no / less (missed/under-reported VRU) -> R improve recall on occluded VRUs; SF absence-of-evidence
+      / observability monitor that outputs UNKNOWN; P reduce speed where observability is poor.
+    - late / frozen (stale output) -> R reduce latency / freshness in pipeline; SF staleness/timeout
+      monitor; P limit speed so the stale window is tolerable.
+    - more (false positive) -> R reduce false-positive rate via calibration; SF plausibility cross-check
+      before triggering an abrupt reaction; P limit phantom-braking impact.
+    - wrong / inverted / misordered (wrong class/position/order) -> R fix the labelling/geometry/ordering
+      cause; SF cross-sensor consistency check; P operational constraint that bounds the error.
+    - uncertain_but_confident / valid_but_unsafe -> R uncertainty calibration / richer output semantics;
+      SF confidence-vs-evidence monitor; P conservative behavior under low evidence.
+  Do NOT reuse one identical measure sentence across most rows of a context.
 
   Example safety_functions item -> "[SG1] (SF1) The system shall output UNKNOWN when cyclist
   observability is insufficient instead of reporting the path as clear."
@@ -53,9 +79,14 @@ output_schema: |
       passive_operational_measures: { type: array, items: { type: string } }
 constraints: |
   - Output JSON ONLY: a top-level JSON ARRAY of objects, one per input row, SAME order and length.
-  - Each of the three fields is an array of requirement-style strings (a class may be empty).
-  - EVERY safety goal (SG1..SGn, by ai_safety_goals order) MUST be covered by at least one measure, and
-    each measure string MUST begin with its goal tag "[SGk] " followed by its id "(R1)"/"(SF1)"/"(P1)".
+  - Each of the three fields is an array of requirement-style strings.
+  - EVERY safety goal (SG1..SGn, by ai_safety_goals order) MUST have AT LEAST ONE Safety Function (SF)
+    tagged with its OWN [SGk], and SHOULD also have an R and/or a P for that same goal where relevant.
+  - Measures MUST be distributed across ALL goals — never put every measure under SG1 and never leave any
+    goal without its own [SGk]-tagged measure.
+  - A goal may have SEVERAL measures across R/SF/P; there is no maximum. Do not restrict a goal to a
+    single class.
+  - Each measure string MUST begin with its goal tag "[SGk] " followed by its id "(R1)"/"(SF1)"/"(P1)".
   - Measures MUST be appropriate to the component_class (detection-output level for perception
     components; never planner-level unless the component is a Planning component).
   - Write measures as one-sentence "shall" requirements. Do not use the ':' or ';' characters.
