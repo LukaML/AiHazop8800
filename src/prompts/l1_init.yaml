@@ -52,6 +52,14 @@ instructions: |
   "class_questions" to focus on risks that matter for this component class. Ground every
   failure mode in the specific scenario and ODD — avoid generic statements.
 
+  STAY INSIDE THE ODD (hard rule): the failure mode must occur within the declared ODD. NEVER invent
+  conditions the ODD excludes. If the ODD says "Daylight only" and "No dense fog", do NOT write night,
+  nighttime, darkness, low-light, dusk, dense fog, heavy rain, snow, highway, or high-speed scenarios.
+  For "biased"/"overfitted"/"overgeneralized", express the variation WITHIN the ODD — e.g. partially
+  occluded cyclists, cargo bikes, child cyclists, unusual clothing/appearance, crowd density — not
+  out-of-ODD weather/lighting. (Only mention an out-of-ODD condition if you explicitly frame it as an
+  out-of-ODD restriction, which is rarely what L1 needs.)
+
   DISTINCTNESS (critical): each guideword denotes a DIFFERENT kind of deviation, so each
   failure_mode MUST be substantially different from the others — not the same sentence reworded.
   Reflect the guideword's specific deviation type:

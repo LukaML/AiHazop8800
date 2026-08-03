@@ -20,6 +20,11 @@ instructions: |
   CONSISTENCY (hard rule): the safety_decision MUST match risk_status.
     - risk_status ACCEPTABLE  -> safety_decision MUST be ACCEPT.
     - risk_status ABOVE MEM TARGET -> safety_decision MUST be IMPROVE, RESTRICT, or INVESTIGATE (never ACCEPT).
+  SERIOUS-HARM ACCEPT (hard rule): a hazard whose potential_harm involves a vulnerable road user
+  (pedestrian/cyclist/…) or a contact/injury outcome (struck/hit/collision/serious or fatal injury) may
+  be ACCEPT ONLY when risk_status is ACCEPTABLE (computed risk already below the MEM target). The
+  acceptance_rationale must explain WHY the risk is below target in this ODD (e.g. very low exposure at
+  the campus speed limit), not merely assert acceptance.
   Give a one-sentence acceptance_rationale.
 
   STRICT SCOPE: output ONLY safety_decision and acceptance_rationale. NEVER write reviewer/validator/

@@ -24,10 +24,23 @@ instructions: |
       rows, give evidence that justifies accepting the risk (e.g. scenario validation showing the hazard
       does not occur in the ODD).
       For an ACCEPT row (no measures), evidence must be ACCEPTANCE evidence — what shows the risk is
-      already below target (e.g. scenario-based validation showing the hazard does not occur in this ODD,
-      field-monitoring data) — NOT mitigation evidence, and it must NOT reference measure ids.
-    - open_assumptions: unverified assumptions or required follow-ups. MUST be non-empty when an ACCEPT
-      row is for a dangerous hazard (state the assumptions that justify accepting it); otherwise 0–3 items.
+      already below target (e.g. closed-loop scenario validation showing the hazard stays below the MEM
+      target within this daylight campus ODD and speed limit, dataset audit confirming the scenario slice
+      is represented, operational logs supporting the assumed low exposure) — NOT mitigation evidence. An
+      ACCEPT evidence item MUST NOT reference any measure id (R1/SF1/P1) or name a measure class
+      ("respecification", "safety function", "passive measure") — there are no measures to verify.
+
+      GUIDEWORD-SPECIFIC evidence for improved rows (match the deviation, never copy-paste): frozen ->
+      "(SF1) Fault injection with stale timestamps verifies stale object lists are rejected before
+      publication."; corrupted -> "(SF1) Tensor corruption tests verify NaN/Inf/out-of-range values
+      produce UNKNOWN output."; inverted -> "(SF1) Coordinate-frame regression tests verify left/right
+      lateral positions are not swapped."; late -> "(SF1) Latency stress testing verifies detection age
+      stays within the safety deadline."
+    - open_assumptions: the conditions under which the result holds / required follow-ups. MUST be
+      non-empty for EVERY ACCEPT row — state the acceptance conditions, e.g. "The ODD remains daylight,
+      maximum 15 km/h, no dense fog.", "Traffic density stays consistent with the campus-shuttle
+      scenario.", "Validation data remains representative of the defined ODD and scenario.", "The MEM
+      target remains the selected acceptance criterion." For non-ACCEPT rows, 0–3 genuine assumptions.
 
   Echo each row's "row_id" exactly. Output ONLY the new fields plus row_id.
 

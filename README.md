@@ -1,111 +1,163 @@
 # HazopLLM
 
-An LLM-powered HAZOP (Hazard and Operability Study) analysis pipeline. Generates safety analysis tables for system functions using a three-stage LLM workflow with automated validation and review loops.
+HazopLLM implements the AI-HAZOP-8800 methodology as an LLM-powered, eight-phase
+hazard-analysis pipeline. It accepts one or more structured AI-component contexts,
+runs generation, validation, review, and repair loops for phases L1 through L8, and
+exports an HTML/CSV safety worksheet. A FastAPI web GUI is included for interactive
+analysis, editing, regeneration, and export.
 
-## Setup
+## Requirements
 
-### Requirements
+- Python 3.10 or newer (64-bit recommended)
+- An API key for OpenAI, Google Gemini, or Groq to run an analysis
+- A terminal opened in the repository root
 
-- Python 3.10+
-- An API key for at least one supported LLM provider
+## Windows setup (PowerShell)
 
-### Installation
+The commands below use Python 3.11 as an example. `py -0p` lists the Python versions
+installed through the Windows Python launcher; replace `3.11` with any installed
+version that is 3.10 or newer. If the `py` launcher is unavailable but
+`python --version` reports 3.10 or newer, create the environment with
+`python -m venv .venv` instead.
 
-```bash
-pip install -r requirements.txt
+```powershell
+py -0p
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-### LLM Provider Configuration
+If PowerShell blocks `Activate.ps1`, allow locally created scripts for the current
+PowerShell process only, then activate the environment again:
 
-Set the API key for your chosen provider as an environment variable:
-
-```bash
-export OPENAI_API_KEY="your-key"   # OpenAI (default provider)
-export GEMINI_API_KEY="your-key"   # Google Gemini
-export GROQ_API_KEY="your-key"     # Groq
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+.\.venv\Scripts\Activate.ps1
 ```
 
-| Provider | Default Model | API Key Env Var |
-|----------|---------------|-----------------|
-| openai   | gpt-3.5-turbo | `OPENAI_API_KEY` |
-| gemini   | gemini-2.5-flash | `GEMINI_API_KEY` |
-| groq     | llama-3.1-8b-instant | `GROQ_API_KEY` |
+`-Scope Process` does not require an administrator and expires when that PowerShell
+window closes. You can also avoid activation and any execution-policy change by
+calling the virtual environment's interpreter directly:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m src.gui.app
+```
+
+Smoke-check a fresh installation before configuring a provider (these commands work
+whether or not the environment is activated):
+
+```powershell
+.\.venv\Scripts\python.exe -c "import src.gui.app; print('GUI import OK')"
+.\.venv\Scripts\python.exe -m src.run_pipeline --help
+```
+
+The GUI import check also verifies that the multipart upload dependency is present.
+
+## LLM provider configuration
+
+The CLI reads the selected provider's API key from the environment. In PowerShell,
+set one of these process-scoped variables in the same window that will run the CLI:
+
+```powershell
+$env:OPENAI_API_KEY = "your-key"
+$env:GEMINI_API_KEY = "your-key"
+$env:GROQ_API_KEY = "your-key"
+```
+
+Only the key for the provider you use is required. These values disappear when the
+PowerShell window closes. In legacy Command Prompt (`cmd.exe`), the equivalent syntax
+is:
+
+```bat
+set OPENAI_API_KEY=your-key
+set GEMINI_API_KEY=your-key
+set GROQ_API_KEY=your-key
+```
+
+The web GUI has its own **Set Key** field. GUI keys are kept in memory only and are
+not read from the shell environment, persisted to disk, logged, or returned to the
+browser.
+
+| Provider | Default generation model | CLI environment variable |
+|----------|--------------------------|--------------------------|
+| `openai` | `gpt-3.5-turbo` | `OPENAI_API_KEY` |
+| `gemini` | `gemini-2.5-flash` | `GEMINI_API_KEY` |
+| `groq` | `llama-3.1-8b-instant` | `GROQ_API_KEY` |
+
+The review model defaults to the selected generation model. Models can be overridden
+with `--model` and `--model-review`.
 
 ## Usage
 
-### CLI Pipeline
-
-```bash
-# Basic usage (OpenAI, default)
-python -m src.run_pipeline src/functions.txt --notes "System description" --outdir out
-
-# Specify provider and model
-python -m src.run_pipeline src/functions.txt --provider gemini --outdir out
-
-# With RAG (Retrieval-Augmented Generation) from reference documents
-python -m src.run_pipeline src/functions.txt --use-rag --rag-files "docs/,specs.pdf" --rag-embedder local
-
-# Limit deviations per guideword
-python -m src.run_pipeline src/functions.txt --max_devs_per_gw 2 --outdir out
-```
-
-**Input:** A functions file (plain text with one function per line, YAML with `functions` key, or JSON array).
-
-**Output:** HTML report (`out/hazop.html`) and CSV export (`out/hazop.csv`).
-
 ### Web GUI
 
-```bash
+With the virtual environment activated:
+
+```powershell
 python -m src.gui.app
 ```
 
-Opens a browser-based interface for interactive analysis with human-in-the-loop editing, row rating, regeneration, and export.
+Open <http://127.0.0.1:8000>, select a provider, enter its key in **Set Key**, and
+load or enter an analysis context. The API health check is available at
+<http://127.0.0.1:8000/health> and the interactive API documentation at
+<http://127.0.0.1:8000/docs>.
+
+### CLI pipeline
+
+The CLI accepts a YAML or JSON context file. A single context must define
+`component`, `component_class`, `aspect`, `odd`, and `scenario`; a multi-component
+file wraps those objects in a `components` list. See `src/examples/`.
+
+```powershell
+# Single-component example
+python -m src.run_pipeline src/examples/cyclist.yaml --provider openai --outdir out
+
+# Multi-component example with Gemini
+python -m src.run_pipeline src/examples/shuttle_fleet.yaml --provider gemini --outdir out
+
+# Restrict the catalogue guidewords used by the run
+python -m src.run_pipeline src/examples/cyclist.yaml --guidewords no,less,more --outdir out
+```
+
+The default outputs are `out/hazop.html` and `out/hazop.csv`.
+
+### macOS/Linux setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+export OPENAI_API_KEY="your-key"
+python -m src.run_pipeline src/examples/cyclist.yaml --provider openai --outdir out
+```
 
 ## Architecture
 
-### Three-Stage Pipeline (L1 -> L2 -> L3)
+The pipeline enriches each applicable worksheet row through eight phases:
 
-The pipeline generates HAZOP rows through three successive enrichment stages:
+1. **L1 - Failure modes:** one failure mode per configured guideword.
+2. **L2 - Hazards and triage:** hazardous behavior, potential harm, and safety relevance.
+3. **L3 - Initial risk:** ordinal risk factors and code-computed initial risk.
+4. **L4 - Acceptance:** `ACCEPT`, `IMPROVE`, `RESTRICT`, or `INVESTIGATE` decision.
+5. **L5 - Safety goals:** goals for rows that require further action.
+6. **L6 - Measures:** respecifications, safety functions, and operational measures.
+7. **L7 - Residual risk:** code-computed risk after the proposed measures.
+8. **L8 - Evidence:** required evidence and open assumptions.
 
-1. **L1 (Deviations):** Generates deviation descriptions for each function x guideword combination using the 11 standard HAZOP guidewords (no, more, less, as well as, part of, reverse, other than, early, late, before, after).
-
-2. **L2 (Causes):** Adds root cause analysis to each L1 row.
-
-3. **L3 (Effects):** Adds system-level effects and a safety triage flag (`potentially_dangerous`).
-
-Each stage follows an init-validate-review-repair cycle:
-
-```
-INIT -> VALIDATE --[pass]--> next stage
-           |
-        [issues]
-           |
-        REVIEW -> REGEN -> VALIDATE -> ...
-```
-
-After L3, a holistic cross-stage review checks consistency across all rows and can cascade fixes back through earlier stages.
-
-### Key Modules
+Each phase follows a generate, validate, review, and repair cycle. A final holistic
+review checks cross-phase consistency and can cascade a repair through downstream
+phases.
 
 | Module | Purpose |
 |--------|---------|
-| `src/graph_full.py` | LangGraph state machine defining the full pipeline |
-| `src/run_pipeline.py` | CLI entry point |
-| `src/chains.py` | LLM chain functions for generation, review, and patching |
-| `src/validators.py` | Pydantic-based validation with coverage checks |
-| `src/models.py` | Data models (HazopL1Row, HazopL2Row, HazopL3Row) |
-| `src/llm_client.py` | Multi-provider LLM client with JSON parsing |
-| `src/rag_utils.py` | Document loading and retrieval (TF-IDF or OpenAI embeddings) |
-| `src/prompts/` | YAML prompt templates for each LLM call |
-
-### RAG Support
-
-The pipeline optionally augments LLM context with retrieved content from reference documents (TXT, CSV, XLSX, PDF). Two embedding backends are supported:
-- `local`: TF-IDF vectorization (no API calls needed)
-- `openai`: OpenAI text embeddings
-
-## Testing
-
-```bash
-python -m pytest tests/ -v
-```
+| `src/graph_full.py` | L1-L8 LangGraph state machine and repair cascade |
+| `src/run_pipeline.py` | CLI entry point and HTML/CSV worksheet writers |
+| `src/ai_chains.py`, `src/chains.py` | Generation, review, and patch chains |
+| `src/validators.py`, `src/models.py` | Phase validation and data models |
+| `src/catalogue_loader.py`, `src/risk_model.py` | Methodology catalogues and risk calculation |
+| `src/llm_client.py` | OpenAI-compatible provider client |
+| `src/gui/` | FastAPI backend and browser interface |

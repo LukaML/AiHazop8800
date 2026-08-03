@@ -28,6 +28,11 @@ instructions: |
   Translate component-level deviations into VEHICLE-level consequences — do not merely restate
   the failure_mode. Be realistic about the scenario and ODD (e.g. a low-speed campus shuttle).
 
+  STAY INSIDE THE ODD (hard rule): the hazardous_behavior must occur within the declared ODD. If the ODD
+  says "Daylight only"/"No dense fog", do NOT introduce night, darkness, low-light, dense fog, heavy rain,
+  snow, highway, or high-speed conditions. Keep consequences consistent with the campus speed limit and
+  daylight operation.
+
   PHYSICAL PLAUSIBILITY (required): the hazardous_behavior must be geometrically and physically
   consistent with the scenario. Do NOT invent a collision geometry that cannot happen — e.g. for a
   cyclist OCCLUDED behind a parked van ahead, do NOT write "rear-end collision with the cyclist behind

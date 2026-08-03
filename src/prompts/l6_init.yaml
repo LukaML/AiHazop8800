@@ -31,10 +31,13 @@ instructions: |
   measure — a goal with no [SGk]-tagged SF is invalid. A goal may have several measures (no maximum), but
   "several per goal" applies to each goal in turn, not as a reason to dump everything onto the first goal.
 
-  STABLE IDS (required): give every measure a stable id and place it right after the goal tag, in
-  parentheses. Respecifications are (R1), (R2), ...; safety_functions are (SF1), (SF2), ...;
-  passive_operational_measures are (P1), (P2), ... — number each class from 1 within the row. So a
-  measure string looks like "[SG1] (SF1) The system shall ...". Evidence (L8) will reference these ids.
+  STABLE IDS (required): give every measure a stable id right after the goal tag, in parentheses.
+  Respecifications are (R1), (R2), ...; safety_functions are (SF1), (SF2), ...; passive_operational_measures
+  are (P1), (P2), ... So a measure string looks like "[SG1] (SF1) The system shall ...".
+  IDS MUST BE UNIQUE WITHIN THE ROW (hard rule): number each class with a SINGLE running counter across the
+  WHOLE row, never restart per goal. One id = one distinct measure. Do NOT emit (R1)/(SF1)/(P1) again under
+  SG2 and SG3 with different text — that is the most common error. Correct: SG1 -> (R1)(SF1)(P1),
+  SG2 -> (R2)(SF2), SG3 -> (SF3)(P2). Evidence (L8) references these ids, so each must be unique.
 
   COMPONENT LEVEL (required): measures MUST match the component's level (component_class). For a
   perception component such as Camera Object Detection, prefer detection-output measures — dataset
@@ -56,11 +59,30 @@ instructions: |
       monitor; P limit speed so the stale window is tolerable.
     - more (false positive) -> R reduce false-positive rate via calibration; SF plausibility cross-check
       before triggering an abrupt reaction; P limit phantom-braking impact.
-    - wrong / inverted / misordered (wrong class/position/order) -> R fix the labelling/geometry/ordering
-      cause; SF cross-sensor consistency check; P operational constraint that bounds the error.
-    - uncertain_but_confident / valid_but_unsafe -> R uncertainty calibration / richer output semantics;
-      SF confidence-vs-evidence monitor; P conservative behavior under low evidence.
+    - wrong (misclassification) -> R class-confusion reduction; SF semantic / position-class plausibility
+      check and cross-sensor consistency check; P operational constraint that bounds the impact.
+    - frozen (stale object list) -> R remove stale reuse; SF timestamp freshness monitor, stale-output
+      detector, frame-age timeout that suppresses stale object lists; P speed limit for the stale window.
+    - corrupted -> R robust interface schema; SF NaN/Inf/range/schema validation that rejects corrupted
+      tensors and outputs UNKNOWN; P software configuration management.
+    - inverted -> R fix the coordinate-frame/sign mapping; SF coordinate-frame validation, left/right sign
+      check, lateral-position plausibility check; P calibration-consistency operating constraint.
+    - unsafe_fallback -> R define a safe fallback output contract; SF controlled-deceleration fallback and
+      rear-end-collision-risk check; P downstream cautious/degraded-mode interface and operator procedure.
+    - valid_but_unsafe -> R output contract must include position, velocity, uncertainty, freshness, and
+      validity (count-only output is insufficient); SF monitor that treats incomplete object state as
+      UNKNOWN; P architecture review of the downstream interface.
+    - uncertain_but_confident -> R uncertainty calibration; SF confidence-vs-evidence monitor; P
+      conservative behavior under low evidence.
   Do NOT reuse one identical measure sentence across most rows of a context.
+
+  REQUIREMENT WORDING (hard rule): every measure must be a complete requirement sentence — "The system
+  shall <VERB> ...". The word after "shall" must be a verb. NEVER write a noun fragment.
+    BAD : "The system shall cross-sensor consistency check."
+    BAD : "The system shall operational constraint that bounds the error."
+    GOOD: "The system shall perform a cross-sensor consistency check before publishing cyclist position."
+    GOOD: "The system shall enforce an operational speed constraint when object-position uncertainty
+           exceeds the defined threshold."
 
   Example safety_functions item -> "[SG1] (SF1) The system shall output UNKNOWN when cyclist
   observability is insufficient instead of reporting the path as clear."

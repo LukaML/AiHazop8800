@@ -24,6 +24,8 @@ src/gui/**/__pycache__/
 !src/rag_docs/*.txt
 
 # Environment files
+.venv/
+venv/
 .env
 .env*
 

@@ -15,3 +15,4 @@ PyPDF2>=3.0
 # Web GUI
 fastapi>=0.100
 uvicorn>=0.20
+python-multipart>=0.0.6

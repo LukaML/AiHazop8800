@@ -21,6 +21,12 @@ from src.validators import (
     _check_goal_coverage,
     _check_evidence,
     _check_weak_assumptions,
+    _check_accept_assumptions,
+    _check_accept_justification,
+    _check_odd_consistency,
+    _check_measure_id_uniqueness,
+    _check_requirement_wording,
+    _check_evidence_repetition,
     is_safety_relevant,
     is_exportable_row,
     is_valid_l1_row,
@@ -504,3 +510,106 @@ def test_short_failure_mode_is_not_an_incomplete_reason():
     row = _complete_safety_row(failure_mode="Detector mislocates the cyclist by mirroring left and right.")
     assert is_exportable_row(row) is True
     assert incomplete_reason(row) == ""
+
+
+# --------------------------------------------------------------------------- #
+# Content-quality pass: ACCEPT evidence/assumptions, ODD, measure ids, wording
+# --------------------------------------------------------------------------- #
+
+_ODD = "University campus shuttle. Maximum 15 km/h. Daylight only. No dense fog."
+
+
+def test_accept_evidence_must_not_cite_measures():
+    # no measures (ACCEPT) but evidence cites (R2) -> flagged
+    row = {"row_id": "L8-1", "safety_decision": "ACCEPT",
+           "respecifications": [], "safety_functions": [], "passive_operational_measures": [],
+           "evidence": ["Scenario validation confirms low exposure (R2)."]}
+    assert any("ACCEPT" in i and "measure" in i.lower() for i in _check_evidence([row]))
+
+
+def test_accept_evidence_must_not_name_measure_class():
+    row = {"row_id": "L8-2", "safety_decision": "ACCEPT",
+           "respecifications": [], "safety_functions": [], "passive_operational_measures": [],
+           "evidence": ["Metamorphic testing acts as a Respecification of the model."]}
+    assert any("measure class" in i for i in _check_evidence([row]))
+
+
+def test_accept_evidence_clean_passes():
+    row = {"row_id": "L8-3", "safety_decision": "ACCEPT",
+           "respecifications": [], "safety_functions": [], "passive_operational_measures": [],
+           "hazardous_behavior": "", "potential_harm": "",
+           "evidence": ["Closed-loop scenario validation shows the hazard stays below the MEM target "
+                        "within the daylight campus ODD and 15 km/h speed limit."]}
+    assert _check_evidence([row]) == []
+
+
+def test_accept_row_needs_open_assumptions():
+    row = {"row_id": "L8-4", "safety_decision": "ACCEPT", "open_assumptions": []}
+    assert _check_accept_assumptions([row])
+    row_ok = {"row_id": "L8-5", "safety_decision": "ACCEPT",
+              "open_assumptions": ["The ODD remains daylight, maximum 15 km/h, no dense fog."]}
+    assert _check_accept_assumptions([row_ok]) == []
+
+
+def test_serious_accept_needs_evidence_and_assumptions():
+    row = {"row_id": "L8-6", "safety_decision": "ACCEPT", "risk_status": "ACCEPTABLE",
+           "potential_harm": "A cyclist could be struck.", "evidence": [], "open_assumptions": []}
+    issues = _check_accept_justification([row])
+    assert any("no evidence" in i for i in issues)
+    assert any("no open_assumptions" in i for i in issues)
+
+
+def test_serious_accept_above_mem_is_flagged():
+    row = {"row_id": "L8-7", "safety_decision": "ACCEPT", "risk_status": "ABOVE MEM TARGET",
+           "potential_harm": "A cyclist could be struck.",
+           "evidence": ["scenario validation"], "open_assumptions": ["ODD daylight only"]}
+    assert any("below the MEM target" in i for i in _check_accept_justification([row]))
+
+
+def test_odd_rejects_out_of_odd_failure_mode():
+    row = {"row_id": "L1-15", "odd": _ODD,
+           "failure_mode": "The detector performs poorly when detecting night cyclists in darkness."}
+    assert any("out-of-ODD" in i for i in _check_odd_consistency([row], "failure_mode"))
+
+
+def test_odd_allows_in_odd_variation():
+    row = {"row_id": "L1-15b", "odd": _ODD,
+           "failure_mode": "The detector performs poorly on partially occluded cyclists and cargo bikes."}
+    assert _check_odd_consistency([row], "failure_mode") == []
+
+
+def test_odd_allows_explicit_out_of_odd_restriction():
+    row = {"row_id": "L1-15c", "odd": _ODD,
+           "failure_mode": "Outside the ODD at night the detector is unsupported and operation is restricted."}
+    assert _check_odd_consistency([row], "failure_mode") == []
+
+
+def test_measure_id_uniqueness():
+    dup = [{"row_id": "L6-1",
+            "respecifications": ["[SG1] (R1) improve occluded-cyclist recall",
+                                 "[SG2] (R1) reduce speed near crossings"],
+            "safety_functions": [], "passive_operational_measures": []}]
+    assert any("reuses measure id" in i for i in _check_measure_id_uniqueness(dup))
+    uniq = [{"row_id": "L6-2",
+             "respecifications": ["[SG1] (R1) improve recall", "[SG2] (R2) reduce speed"],
+             "safety_functions": ["[SG1] (SF1) monitor"], "passive_operational_measures": []}]
+    assert _check_measure_id_uniqueness(uniq) == []
+
+
+def test_requirement_wording():
+    bad = [{"row_id": "L6-3",
+            "respecifications": [], "passive_operational_measures": [],
+            "safety_functions": ["[SG1] (SF1) The system shall cross-sensor consistency check."]}]
+    assert _check_requirement_wording(bad)
+    good = [{"row_id": "L6-4",
+             "respecifications": [], "passive_operational_measures": [],
+             "safety_functions": ["[SG1] (SF1) The system shall perform a cross-sensor consistency "
+                                  "check before publishing cyclist position."]}]
+    assert _check_requirement_wording(good) == []
+
+
+def test_evidence_repetition_flagged():
+    same = "Dataset audit with a coverage matrix to show occluded cases are represented."
+    rows = [{"row_id": f"L8-{i}", "component": "Cam", "aspect": "Out", "scenario": "Crossing",
+             "evidence": [same]} for i in range(4)]
+    assert any("reuses the same evidence" in i for i in _check_evidence_repetition(rows))

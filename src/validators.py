@@ -387,6 +387,11 @@ def _check_decision_consistency(rows: List[Any]) -> List[str]:
 
 
 _MEASURE_ID_RE = re.compile(r"\((SF|R|P)\s*(\d+)\)", re.I)
+# Measure-class WORDS — used to catch ACCEPT evidence that names a mitigation class even without an id.
+_MEASURE_WORD_RE = re.compile(
+    r"\b(respecification|safety[- ]function|passive[- ](?:operational[- ])?measure|mitigation measure)s?\b",
+    re.I,
+)
 
 
 def _measure_ids(text: str) -> set:
@@ -431,31 +436,159 @@ def _check_evidence(rows: List[Any]) -> List[str]:
                     f"row[{i}] (row_id={rid}) measures {uncovered} have no evidence; add an evidence item "
                     f"that references each measure id (e.g. '(SF1) fault injection ...')"
                 )
-
-        # PART 7: evidence must not reference a measure id that does not exist in this row.
-        phantom = sorted(referenced - measure_ids)
-        if phantom:
-            issues.append(
-                f"row[{i}] (row_id={rid}) evidence references measure id(s) {phantom} that are not present "
-                f"in this row's measures; reference only ids that exist in R/SF/P"
-            )
+            # evidence must not reference a measure id that does not exist in this row.
+            phantom = sorted(referenced - measure_ids)
+            if phantom:
+                issues.append(
+                    f"row[{i}] (row_id={rid}) evidence references measure id(s) {phantom} that are not present "
+                    f"in this row's measures; reference only ids that exist in R/SF/P"
+                )
+        else:
+            # ACCEPT rows have NO measures: evidence must JUSTIFY the accepted risk, never cite a measure
+            # id ((R1)/(SF1)/(P1)) or a measure-class word (Respecification/Safety Function/Passive ...).
+            if referenced:
+                issues.append(
+                    f"row[{i}] (row_id={rid}) is an ACCEPT row with no measures, but evidence references "
+                    f"measure id(s) {sorted(referenced)}; ACCEPT evidence must justify why the initial risk "
+                    f"is below the MEM target, not verify mitigations"
+                )
+            elif any(_MEASURE_WORD_RE.search(e) for e in items):
+                issues.append(
+                    f"row[{i}] (row_id={rid}) is an ACCEPT row with no measures, but evidence names a "
+                    f"measure class (respecification/safety function/passive measure); ACCEPT evidence must "
+                    f"justify the accepted risk (e.g. scenario validation within the ODD), not cite measures"
+                )
     return issues
 
 
 def _check_accept_assumptions(rows: List[Any]) -> List[str]:
-    """An ACCEPT of a dangerous hazard must state the assumptions that justify acceptance (#6)."""
+    """EVERY ACCEPT row must state the assumptions under which acceptance remains valid (#6).
+
+    Acceptance always rests on conditions (the ODD, traffic density, the MEM target, validation-data
+    representativeness); an ACCEPT row with no open_assumptions is not a credible acceptance."""
     issues: List[str] = []
     for i, r in enumerate(rows):
         rid = _row_get(r, "row_id")
         decision = str(_row_get(r, "safety_decision") or "").strip().upper()
-        dangerous = bool(_row_get(r, "potentially_dangerous"))
-        if decision == "ACCEPT" and dangerous:
+        if decision == "ACCEPT":
             oa = _row_get(r, "open_assumptions")
             if not (isinstance(oa, list) and any(str(x).strip() for x in oa)):
                 issues.append(
-                    f"row[{i}] (row_id={rid}) accepts a dangerous hazard but lists no open_assumptions; "
-                    f"an ACCEPT of a dangerous hazard must state the assumptions that justify acceptance"
+                    f"row[{i}] (row_id={rid}) accepts the risk but lists no open_assumptions; an ACCEPT "
+                    f"must state the conditions (ODD, speed, traffic, MEM target, validation data) under "
+                    f"which acceptance remains valid"
                 )
+    return issues
+
+
+def _check_accept_justification(rows: List[Any]) -> List[str]:
+    """A serious/VRU hazard may be ACCEPTed only with a credible justification (item 3).
+
+    For an ACCEPT row whose harm involves a vulnerable road user or a contact/injury outcome, require
+    risk_status ACCEPTABLE (below the MEM target) AND non-empty acceptance evidence AND non-empty
+    open_assumptions. (decision<->status is also enforced by _check_decision_consistency.)"""
+    issues: List[str] = []
+    for i, r in enumerate(rows):
+        rid = _row_get(r, "row_id")
+        if str(_row_get(r, "safety_decision") or "").strip().upper() != "ACCEPT":
+            continue
+        harm = _row_text(r, "hazardous_behavior", "potential_harm")
+        if not (_VRU_RE.search(harm) or _CONTACT_RE.search(harm)):
+            continue
+        status = str(_row_get(r, "risk_status") or "").strip().upper()
+        if status and status != "ACCEPTABLE":
+            issues.append(
+                f"row[{i}] (row_id={rid}) ACCEPTs a serious/VRU hazard whose risk_status is {status}; a "
+                f"serious harm may be ACCEPT only when the computed risk is below the MEM target"
+            )
+        ev = _row_get(r, "evidence")
+        if not (isinstance(ev, list) and any(str(x).strip() for x in ev)):
+            issues.append(
+                f"row[{i}] (row_id={rid}) ACCEPTs a serious/VRU hazard but gives no evidence; provide "
+                f"evidence that justifies why the initial risk is acceptable in this ODD"
+            )
+        oa = _row_get(r, "open_assumptions")
+        if not (isinstance(oa, list) and any(str(x).strip() for x in oa)):
+            issues.append(
+                f"row[{i}] (row_id={rid}) ACCEPTs a serious/VRU hazard but states no open_assumptions; "
+                f"state the ODD/exposure conditions under which acceptance holds"
+            )
+    return issues
+
+
+def _evidence_core(text: str) -> str:
+    """Normalise an evidence string for duplicate detection: strip a leading "(id)" and collapse ws."""
+    s = re.sub(r"^\s*\((?:SF|R|P)\s*\d+\)\s*", "", str(text or ""), count=1, flags=re.I)
+    return " ".join(s.lower().split())
+
+
+def _check_evidence_repetition(rows: List[Any]) -> List[str]:
+    """Reject copy-paste evidence: the same evidence sentence reused in >2 rows of one context (item 8)."""
+    issues: List[str] = []
+    seen: Dict[tuple, Dict[str, List[str]]] = {}
+    for r in rows:
+        key = _context_key(r)
+        bucket = seen.setdefault(key, {})
+        rid = str(_row_get(r, "row_id"))
+        ev = _row_get(r, "evidence")
+        if not isinstance(ev, list):
+            continue
+        local = set()
+        for e in ev:
+            core = _evidence_core(e)
+            if len(core.split()) < 4 or core in local:
+                continue
+            local.add(core)
+            bucket.setdefault(core, []).append(rid)
+    for key, bucket in seen.items():
+        for core, rids in bucket.items():
+            if len(rids) > 2:
+                issues.append(
+                    f"context {key} reuses the same evidence in {len(rids)} rows ({', '.join(rids[:4])}…); "
+                    f"make evidence specific to each row's measures/guideword, not copy-paste: '{core[:60]}'"
+                )
+    return issues
+
+
+# Out-of-ODD terms that contradict a daylight/clear-weather/low-speed campus ODD.
+_OUT_OF_ODD_RE = re.compile(
+    r"\b(night|nighttime|night-time|after dark|darkness|low[- ]light|dusk|dawn|dense fog|"
+    r"heavy rain|downpour|snow|sleet|ice|highway|motorway|freeway|high[- ]speed)\b",
+    re.I,
+)
+# Phrasing that legitimately references an out-of-ODD condition as a restriction/exclusion.
+_ODD_EXCLUSION_RE = re.compile(
+    r"\b(outside (?:the )?odd|out-of-odd|out of odd|unsupported|not supported|excluded|"
+    r"beyond the odd|restrict\w*|disengage\w*|outside operating)\b",
+    re.I,
+)
+
+
+def _odd_is_restricted(odd: str) -> bool:
+    low = str(odd or "").lower()
+    return ("daylight" in low or "no dense fog" in low or "no fog" in low
+            or re.search(r"\b\d+\s*km/?h\b", low) is not None)
+
+
+def _check_odd_consistency(rows: List[Any], field: str) -> List[str]:
+    """Reject hazards that invent conditions outside the row's own ODD (item 4).
+
+    Data-driven: only fires when the row's ``odd`` declares a restriction (daylight / no fog / a speed
+    cap). A hazard that frames the out-of-ODD term as a restriction/exclusion is allowed."""
+    issues: List[str] = []
+    for i, r in enumerate(rows):
+        rid = _row_get(r, "row_id")
+        odd = str(_row_get(r, "odd") or "")
+        if not _odd_is_restricted(odd):
+            continue
+        text = str(_row_get(r, field) or "")
+        hit = _OUT_OF_ODD_RE.search(text)
+        if hit and not _ODD_EXCLUSION_RE.search(text):
+            issues.append(
+                f"row[{i}] (row_id={rid}) {field} invents an out-of-ODD condition '{hit.group(0)}' that "
+                f"contradicts the defined ODD ({odd[:60]}…); stay within the ODD (e.g. occluded/cargo/"
+                f"unusual-appearance cyclists in daylight) or frame it explicitly as an out-of-ODD restriction"
+            )
     return issues
 
 
@@ -747,6 +880,7 @@ def validate_l1_payload(payload: Any, expected_guidewords: List[str]) -> Tuple[L
     issues += _check_min_words(rows, "failure_mode", L1_MIN_WORDS, "failure_mode")
     issues += _check_no_meta_text(rows, ["failure_mode"])
     issues += _check_component_level(rows)
+    issues += _check_odd_consistency(rows, "failure_mode")
     return rows, len(issues) == 0, issues
 
 
@@ -759,6 +893,7 @@ def validate_l2_payload(payload: Any) -> Tuple[List[Any], bool, List[str]]:
     issues += _check_specific_text(rows, "potential_harm", _VAGUE_HARM_PHRASES, "potential_harm")
     issues += _check_no_meta_text(rows, ["hazardous_behavior", "potential_harm"])
     issues += _check_triage(rows)
+    issues += _check_odd_consistency(rows, "hazardous_behavior")
     return rows, len(issues) == 0, issues
 
 
@@ -949,11 +1084,80 @@ def _check_measure_category(rows: List[Any]) -> List[str]:
     return issues
 
 
+def _check_measure_id_uniqueness(rows: List[Any]) -> List[str]:
+    """Within ONE row, a measure id must be unique (item 6).
+
+    The per-goal repeat bug emits R1/SF1/P1 again under SG2, SG3 with different text. Ids must number
+    uniquely across the whole row (R1, R2, SF1, SF2, P1), so flag any id that carries >1 distinct text."""
+    issues: List[str] = []
+    for i, r in enumerate(rows):
+        rid = _row_get(r, "row_id")
+        by_id: Dict[str, set] = {}
+        for f in _MEASURE_FIELDS:
+            v = _row_get(r, f)
+            if not isinstance(v, list):
+                continue
+            for m in v:
+                for mid in _measure_ids(m):
+                    by_id.setdefault(mid, set()).add(_measure_core(m))
+        dup = sorted(mid for mid, texts in by_id.items() if len(texts) > 1)
+        if dup:
+            issues.append(
+                f"row[{i}] (row_id={rid}) reuses measure id(s) {dup} for different measures; number ids "
+                f"uniquely within the row (R1, R2, SF1, SF2, P1 …), a single id is one measure"
+            )
+    return issues
+
+
+# Plausible leading verbs for a requirement sentence ("The system shall <verb> …").
+_REQ_VERBS = frozenset((
+    "perform", "ensure", "enforce", "detect", "output", "reject", "validate", "monitor", "limit",
+    "reduce", "verify", "check", "suppress", "trigger", "maintain", "provide", "implement", "restrict",
+    "transition", "publish", "treat", "include", "confirm", "calibrate", "retrain", "improve", "bound",
+    "apply", "use", "require", "prevent", "avoid", "flag", "raise", "issue", "compute", "estimate",
+    "cross-check", "crosscheck", "report", "log", "constrain", "disengage", "decelerate", "slow",
+    "stop", "operate", "support", "select", "discard", "invalidate", "timeout", "time-out", "label",
+    "classify", "augment", "balance", "tune", "add", "define", "establish", "track", "fuse", "associate",
+    "filter", "smooth", "fall", "switch", "notify", "warn", "request", "deny", "block", "isolate",
+))
+_SHALL_RE = re.compile(r"\bshall\s+(?:not\s+|also\s+|then\s+|always\s+|never\s+|continuously\s+)*([a-z][a-z-]*)", re.I)
+
+
+def _check_requirement_wording(rows: List[Any]) -> List[str]:
+    """Measures must read as requirements: "The system shall <verb> …" (item 7).
+
+    Soft heuristic: if a measure uses "shall" but the following word is not a plausible verb, the
+    sentence is a fragment ("shall cross-sensor consistency check") — flag it for rewording."""
+    issues: List[str] = []
+    for i, r in enumerate(rows):
+        rid = _row_get(r, "row_id")
+        for f in _MEASURE_FIELDS:
+            v = _row_get(r, f)
+            if not isinstance(v, list):
+                continue
+            for m in v:
+                core = _measure_core(m)
+                mm = _SHALL_RE.search(core)
+                if mm and mm.group(1).lower() not in _REQ_VERBS:
+                    issues.append(
+                        f"row[{i}] (row_id={rid}) measure is not a requirement sentence ('shall "
+                        f"{mm.group(1)} …'); write 'The system shall <verb> …', e.g. 'shall perform a "
+                        f"cross-sensor consistency check before publishing cyclist position'"
+                    )
+                    break
+            else:
+                continue
+            break
+    return issues
+
+
 def validate_l6_payload(payload: Any) -> Tuple[List[Any], bool, List[str]]:
     rows, issues = parse_rows_safely(payload, AIHazopL6Row)
     issues += _check_goal_coverage(rows)
     issues += _check_measure_repetition(rows)
     issues += _check_measure_category(rows)
+    issues += _check_measure_id_uniqueness(rows)
+    issues += _check_requirement_wording(rows)
     issues += _check_no_meta_text(rows, ["respecifications", "safety_functions", "passive_operational_measures"])
     return rows, len(issues) == 0, issues
 
@@ -971,7 +1175,9 @@ def validate_l8_payload(payload: Any) -> Tuple[List[Any], bool, List[str]]:
     rows, issues = parse_rows_safely(payload, AIHazopL8Row)
     issues += _check_list_non_empty(rows, "evidence")
     issues += _check_evidence(rows)
+    issues += _check_evidence_repetition(rows)
     issues += _check_accept_assumptions(rows)
+    issues += _check_accept_justification(rows)
     issues += _check_weak_assumptions(rows)
     issues += _check_no_meta_text(rows, ["evidence", "open_assumptions"])
     return rows, len(issues) == 0, issues
