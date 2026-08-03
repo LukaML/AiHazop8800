@@ -12,6 +12,7 @@ rag_doc/
 
 # Local methodology/design source documents
 newWay/
+tekst/
 
 # Python cache everywhere
 __pycache__/
