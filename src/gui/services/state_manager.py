@@ -188,6 +188,32 @@ def _canonical_id(component_index: int, row_id: str) -> str:
     return f"c{component_index}__{row_id}"
 
 
+def _imported_rating(meta: Dict[str, Any]) -> Rating:
+    """Coerce optional HTML-import metadata without breaking normal runs."""
+    value = meta.get("rating", Rating.UNRATED)
+    if isinstance(value, Rating):
+        return value
+    try:
+        return Rating(str(value))
+    except (TypeError, ValueError):
+        return Rating.UNRATED
+
+
+def _imported_complete(meta: Dict[str, Any], final: Dict[str, Any]) -> bool:
+    """Prefer an imported completeness flag; otherwise derive it as before."""
+    if "complete" in meta:
+        value = meta.get("complete")
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalised = value.strip().lower()
+            if normalised in ("true", "1", "yes"):
+                return True
+            if normalised in ("false", "0", "no"):
+                return False
+    return is_exportable_row(final)
+
+
 def _apply_derived(final: Dict[str, Any], display_id: str) -> None:
     """Stamp paper display-only fields (Hazard ID, Acceptance criterion) onto a row's map."""
     final["hazard_id"] = display_id
@@ -239,6 +265,10 @@ class StateManager:
             # Coverage: keep one row per configured guideword (do not omit). Invalid L1
             # rows are still blocked from downstream phases in graph_full._gen_l2.
             for ordinal, merged in enumerate(merge_state_rows(state), start=1):
+                import_meta = state.get("_import_meta") or {}
+                row_meta = import_meta.get(_suffix(str(merged.get("row_id"))), {})
+                if not isinstance(row_meta, dict):
+                    row_meta = {}
                 cid = _canonical_id(ci, str(merged.get("row_id")))
                 # Display id: leading number = component (1-based), trailing = row in it.
                 # Component 1 -> L1-1..L1-n, component 2 -> L2-1..L2-n, etc.
@@ -255,7 +285,8 @@ class StateManager:
                     guideword=str(merged.get("guideword", "")),
                     original=original,
                     final=final,
-                    complete=is_exportable_row(final),
+                    rating=_imported_rating(row_meta),
+                    complete=_imported_complete(row_meta, final),
                 )
         logger.info("Initialized %d rows for run %s", len(run.rows), run_id)
 

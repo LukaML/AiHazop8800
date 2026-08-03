@@ -4,8 +4,9 @@
 Columns mirror the CLI worksheet (run_pipeline._WORKSHEET_COLUMNS) so that GUI and
 CLI HTML can be imported interchangeably; a Rating column is appended.
 """
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import html
+import json
 import re
 
 from .state_manager import state_manager, RowState, _stringify
@@ -13,13 +14,15 @@ from src.run_pipeline import _WORKSHEET_COLUMNS
 
 _GOAL_TAG = re.compile(r'^\[?\s*SG\s*(\d+)\s*\]?\s*[-.:]?\s*', re.I)
 _MEASURE_ID_RE = re.compile(r'^\((SF|R|P)\s*\d+\)\s*', re.I)
+_EMBEDDED_SCHEMA = "ai-hazop-8800"
+_EMBEDDED_VERSION = 1
 
 
 def export_to_html(run_id: str) -> str:
     run = state_manager.get_run(run_id)
     if not run:
         raise ValueError(f"Run not found: {run_id}")
-    return _build_html(state_manager.get_all_rows(run_id), run_id)
+    return _build_html(state_manager.get_all_rows(run_id), run_id, contexts=run.contexts)
 
 
 def _escape(text: Any) -> str:
@@ -133,12 +136,47 @@ def _display(final: Dict[str, Any], key: str) -> str:
 
 
 def _rating_display(rating) -> tuple:
-    value = rating.value if hasattr(rating, "value") else str(rating)
+    value = _rating_value(rating)
     return {
         "correct": ("Correct", "background:#dfd;text-align:center;"),
         "partially_correct": ("Partial", "background:#ffd;text-align:center;"),
         "incorrect": ("Incorrect", "background:#fdd;text-align:center;"),
     }.get(value, ("-", "color:#999;text-align:center;"))
+
+
+def _rating_value(rating: Any) -> str:
+    value = rating.value if hasattr(rating, "value") else str(rating or "")
+    return value if value in {"correct", "partially_correct", "incorrect"} else "unrated"
+
+
+def _embedded_payload(rows: List[RowState], contexts: List[Dict[str, str]]) -> str:
+    """Return script-safe JSON carrying the lossless, machine-readable worksheet."""
+    payload = {
+        "schema": _EMBEDDED_SCHEMA,
+        "version": _EMBEDDED_VERSION,
+        "contexts": contexts,
+        "rows": [
+            {
+                "display_id": row.display_id,
+                "component_index": row.component_index,
+                "final": row.final or {},
+                "rating": _rating_value(row.rating),
+                "complete": bool(getattr(row, "complete", True)),
+            }
+            for row in rows
+        ],
+    }
+    # JSON embedded in a script element is raw text, not ordinary escaped HTML.
+    # Escaping these characters as JSON unicode sequences prevents user-provided
+    # worksheet text from terminating the element (for example with </script>).
+    return (
+        json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
 
 def _cell_class(key: str, value: Any) -> str:
@@ -152,18 +190,33 @@ def _cell_class(key: str, value: Any) -> str:
     return ""
 
 
-def _build_html(rows: List[RowState], run_id: str) -> str:
-    ths = "".join(f"<th>{_escape(label)}</th>" for _, label in _WORKSHEET_COLUMNS)
+def _build_html(
+    rows: List[RowState],
+    run_id: str,
+    contexts: Optional[List[Dict[str, str]]] = None,
+) -> str:
+    contexts = contexts or []
+    ths = "".join(
+        f"<th data-field='{_escape(key)}'>{_escape(label)}</th>"
+        for key, label in _WORKSHEET_COLUMNS
+    )
 
     body = []
     for row in rows:
         final = row.final or {}
         classes = []
-        if final.get("potentially_dangerous"):
+        dangerous = bool(final.get("potentially_dangerous"))
+        complete = bool(getattr(row, "complete", True))
+        if dangerous:
             classes.append("dangerous")
-        if getattr(row, "complete", True) is False:
+        if not complete:
             classes.append("incomplete")
         row_cls = f" class='{' '.join(classes)}'" if classes else ""
+        row_meta = (
+            f" data-dangerous='{'true' if dangerous else 'false'}'"
+            f" data-complete='{'true' if complete else 'false'}'"
+            f" data-component-index='{_escape(row.component_index)}'"
+        )
 
         tds = []
         for key, _ in _WORKSHEET_COLUMNS:
@@ -172,21 +225,28 @@ def _build_html(rows: List[RowState], run_id: str) -> str:
             elif key in _LIST_KEYS:
                 tds.append(_list_cell_html(final, key))
             elif key == "guideword":
-                tds.append(f"<td><code>{_escape(_display(final, key))}</code></td>")
+                guideword_value = _stringify(final.get(key))
+                tds.append(
+                    f"<td data-field='guideword' data-value='{_escape(guideword_value)}'>"
+                    f"<code>{_escape(_display(final, key))}</code></td>"
+                )
             else:
                 cls = _cell_class(key, final.get(key))
                 attr = f" class='{cls}'" if cls else ""
                 tds.append(f"<td{attr}>{_escape(_display(final, key))}</td>")
 
+        rating_value = _rating_value(row.rating)
         rating_text, rating_style = _rating_display(row.rating)
         body.append(
-            f"<tr{row_cls}>"
+            f"<tr{row_cls}{row_meta}>"
             + "".join(tds)
-            + f"<td style='{rating_style}'>{rating_text}</td>"
+            + f"<td data-field='rating' data-value='{_escape(rating_value)}' "
+              f"style='{rating_style}'>{rating_text}</td>"
             "</tr>"
         )
 
     tbody = "\n".join(body)
+    embedded = _embedded_payload(rows, contexts)
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <title>AI-HAZOP-8800 Worksheet</title>
 <style>
@@ -205,7 +265,9 @@ small{{color:#64748b;}} code{{background:#eef2ff;padding:2px 6px;border-radius:6
 </style></head><body>
 <h1>AI-HAZOP-8800 Worksheet</h1>
 <p><small>Run ID: {_escape(run_id)} | Exported from GUI. Rows outlined amber are incomplete (failed final validation).</small></p>
-<div class="wrap"><table>
-<thead><tr>{ths}<th>Rating</th></tr></thead><tbody>
+<div class="wrap" data-hazop-schema="{_EMBEDDED_SCHEMA}" data-hazop-version="{_EMBEDDED_VERSION}"><table>
+<thead><tr>{ths}<th data-field="rating">Rating</th></tr></thead><tbody>
 {tbody}
-</tbody></table></div></body></html>"""
+</tbody></table></div>
+<script type="application/json" id="ai-hazop-data">{embedded}</script>
+</body></html>"""
