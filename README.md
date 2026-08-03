@@ -124,6 +124,36 @@ python -m src.run_pipeline src/examples/cyclist.yaml --guidewords no,less,more -
 
 The default outputs are `out/hazop.html` and `out/hazop.csv`.
 
+#### Guideword catalogue
+
+By default, a run uses the eight guidewords marked **Yes** below to keep runtime and
+LLM cost bounded. Pass `--guidewords all` to use the complete catalogue, or pass a
+comma-separated list of IDs to select a custom subset.
+
+| ID | Name | Short description | Default |
+|----|------|-------------------|---------|
+| `no` | No / Missing | Expected signal or output is absent. | **Yes** |
+| `more` | More | Quantity, magnitude, confidence, or effect is too high. | **Yes** |
+| `less` | Less | Quantity, magnitude, confidence, or effect is too low. | **Yes** |
+| `wrong` | Wrong | A semantic, numeric, spatial, temporal, or logical value is incorrect. | **Yes** |
+| `late` | Late | Output arrives after a safety-relevant deadline. | **Yes** |
+| `early` | Early | Output or action occurs prematurely. | No |
+| `intermittent` | Intermittent | Output alternates, flickers, disappears, and returns. | No |
+| `frozen` | Frozen / Stale | An old output is reused as though it were current. | **Yes** |
+| `corrupted` | Corrupted | Data is invalid, damaged, or cannot be interpreted safely. | No |
+| `inverted` | Inverted | Meaning, sign, side, direction, or mapping is reversed. | No |
+| `misordered` | Misordered | Sequence, lifecycle, or time alignment is incorrect. | No |
+| `inconsistent` | Inconsistent | Output contradicts other data or physical plausibility. | **Yes** |
+| `overgeneralized` | Overgeneralized | A learned pattern is applied too broadly. | No |
+| `overfitted` | Overfitted | Benchmark behavior is good, but deployment generalization is poor. | No |
+| `biased` | Biased | Performance differs across ODD slices, object types, locations, or groups. | No |
+| `uncertain_but_confident` | Uncertain but confident | Confidence is high despite ambiguity or unknown input. | **Yes** |
+| `certain_but_unstable` | Certain but unstable | Output changes even though reported confidence remains high. | No |
+| `resource_limited` | Resource-limited | Runtime resource pressure degrades AI quality or timing. | No |
+| `unmonitored` | Unmonitored | A failure is not detected by a safety mechanism. | No |
+| `unsafe_fallback` | Unsafe fallback | The degradation response creates another hazard. | No |
+| `valid_but_unsafe` | Valid-but-unsafe | A value passes interface checks but is semantically unsafe. | No |
+
 ### macOS/Linux setup
 
 ```bash
@@ -147,6 +177,23 @@ The pipeline enriches each applicable worksheet row through eight phases:
 6. **L6 - Measures:** respecifications, safety functions, and operational measures.
 7. **L7 - Residual risk:** code-computed risk after the proposed measures.
 8. **L8 - Evidence:** required evidence and open assumptions.
+
+```text
+[YAML/JSON context(s)] -> [ L1 -> L2 -> ... -> L8 ] -> [Holistic review] -> [HTML / CSV / GUI]
+                                  ^                         |
+                                  +---- repair/cascade -----+
+                                     earliest faulty phase
+```
+
+Every L1-L8 phase uses the same validation loop:
+
+```text
+[Generate] -> [Validate] ---- pass ----> [Next phase]
+                  ^  |
+                  |  +---- issues ----> [Review] -> [Repair]
+                  |                                  |
+                  +----------------------------------+
+```
 
 Each phase follows a generate, validate, review, and repair cycle. A final holistic
 review checks cross-phase consistency and can cascade a repair through downstream

@@ -10,6 +10,9 @@ outStage1/
 # RAG docs
 rag_doc/
 
+# Local methodology/design source documents
+newWay/
+
 # Python cache everywhere
 __pycache__/
 *.pyc
