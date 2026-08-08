@@ -334,7 +334,7 @@ class StateManager:
             changed = True
             touched_phases.add(phase)
 
-        if changed:
+        if changed and ci < len(run.states):
             self._recompute_risk(run, ci, sfx, touched_phases)
             row.final = _rebuild_final(run.states[ci], sfx)
             _apply_derived(row.final, row.display_id)
@@ -377,7 +377,7 @@ class StateManager:
         updated: List[RowState] = []
         for rid in row_ids:
             row = run.rows.get(rid)
-            if not row:
+            if not row or row.component_index >= len(run.states):
                 continue
             row.final = _rebuild_final(run.states[row.component_index], _suffix(rid))
             _apply_derived(row.final, row.display_id)

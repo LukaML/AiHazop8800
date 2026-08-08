@@ -11,14 +11,46 @@ handles:
 import logging
 import os
 import json
+import random
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
-from openai import OpenAI
+from openai import (
+    OpenAI,
+    RateLimitError,
+    APITimeoutError,
+    APIConnectionError,
+    InternalServerError,
+)
 
 from .row_utils import WRAPPER_KEYS
 
 logger = logging.getLogger(__name__)
+
+# Retry policy for transient LLM errors (rate limits, timeouts, connection resets,
+# provider 5xx). A single transient failure must not abort a whole pipeline run, so
+# we back off and retry at this one choke point (every phase/batch/reviewer call
+# funnels through chat_raw). Non-transient errors (auth, bad request) propagate.
+_RETRY_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError, InternalServerError)
+_MAX_RETRY_ATTEMPTS = 5      # total attempts, including the first
+_RETRY_BASE_DELAY = 2.0      # seconds; exponential base
+_RETRY_MAX_DELAY = 30.0      # cap per-attempt wait
+
+
+def _retry_after_seconds(err: Exception) -> Optional[float]:
+    """Return the server-provided Retry-After delay (seconds) if present."""
+    response = getattr(err, "response", None)
+    headers = getattr(response, "headers", None)
+    if not headers:
+        return None
+    raw = headers.get("retry-after") or headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 # ---------------------------------------------------------------------------
 # Provider configuration — maps provider names to base URLs, default models,
@@ -308,6 +340,34 @@ def _salvage_json(text: str) -> str:
     return s[start:end]
 
 
+def _create_with_retry(client: OpenAI, request_kwargs: dict) -> Any:
+    """Call chat.completions.create, retrying transient errors with backoff.
+
+    Rate limits (429), timeouts, connection resets and provider 5xx are retried
+    with exponential backoff + jitter, honouring a server ``Retry-After`` header
+    when present. After ``_MAX_RETRY_ATTEMPTS`` the last error is re-raised.
+    """
+    last_err: Optional[Exception] = None
+    for attempt in range(1, _MAX_RETRY_ATTEMPTS + 1):
+        try:
+            return client.chat.completions.create(**request_kwargs, timeout=300)
+        except _RETRY_EXCEPTIONS as err:
+            last_err = err
+            if attempt >= _MAX_RETRY_ATTEMPTS:
+                break
+            delay = _retry_after_seconds(err)
+            if delay is None:
+                delay = min(_RETRY_BASE_DELAY * (2 ** (attempt - 1)), _RETRY_MAX_DELAY)
+                delay += random.uniform(0, delay * 0.25)  # jitter to avoid thundering herd
+            logger.warning(
+                "LLM call failed (%s), retrying in %.1fs (attempt %d/%d)",
+                type(err).__name__, delay, attempt, _MAX_RETRY_ATTEMPTS,
+            )
+            time.sleep(delay)
+    assert last_err is not None
+    raise last_err
+
+
 def chat_raw(prompt_text: str, model: Optional[str] = None, json_mode: bool = False) -> str:
     """
     Low-level wrapper around Chat Completions.
@@ -349,7 +409,7 @@ def chat_raw(prompt_text: str, model: Optional[str] = None, json_mode: bool = Fa
     if json_mode:
         request_kwargs["response_format"] = {"type": "json_object"}
 
-    resp = client.chat.completions.create(**request_kwargs, timeout=300)
+    resp = _create_with_retry(client, request_kwargs)
     text = resp.choices[0].message.content or ""
     logger.debug("LLM CALL - RAW RESPONSE (first 800 chars): %s", text[:800] + ("..." if len(text) > 800 else ""))
     return text

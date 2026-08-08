@@ -85,17 +85,41 @@ class PipelineAdapter:
 
                 graph = build_full_graph().compile()
                 states: List[Dict[str, Any]] = []
+                failures: List[str] = []
                 total = len(contexts)
                 for ci, ctx in enumerate(contexts):
                     state_manager.update_status(
                         run_id, AnalysisStatus.RUNNING,
                         f"Analysing component {ci + 1}/{total}: {ctx.get('component', '')}",
                     )
-                    state_in = _build_state(ctx, notes, guidewords)
-                    states.append(graph.invoke(state_in))
+                    # Isolate each component: a transient failure on one must not
+                    # discard the components that already succeeded.
+                    try:
+                        state_in = _build_state(ctx, notes, guidewords)
+                        states.append(graph.invoke(state_in))
+                    except Exception as e:  # noqa: BLE001 - keep going, record and report
+                        logger.exception(
+                            "Analysis %s: component %d/%d failed: %s", run_id, ci + 1, total, e
+                        )
+                        failures.append(f"component {ci + 1} ({ctx.get('component', '')}): {e}")
+
+                if not states:
+                    # Nothing succeeded — surface the collected error(s).
+                    state_manager.update_status(
+                        run_id, AnalysisStatus.FAILED,
+                        error="; ".join(failures) or "Analysis produced no results",
+                    )
+                    return
 
                 state_manager.set_states(run_id, states)
-                state_manager.update_status(run_id, AnalysisStatus.COMPLETED)
+                if failures:
+                    state_manager.update_status(
+                        run_id, AnalysisStatus.COMPLETED,
+                        f"{len(states)}/{total} components analysed; "
+                        f"{len(failures)} failed: {'; '.join(failures)}",
+                    )
+                else:
+                    state_manager.update_status(run_id, AnalysisStatus.COMPLETED)
                 run = state_manager.get_run(run_id)
                 logger.info("Analysis %s completed with %d rows", run_id, len(run.rows) if run else 0)
 
